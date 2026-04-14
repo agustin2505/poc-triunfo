@@ -13,3 +13,4 @@ logs/*.log
 data/golden-set/
 docs/specs-mvp/golden-set-manifest.json
 .DS_Store
+node_modules/
