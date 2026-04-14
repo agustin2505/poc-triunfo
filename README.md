@@ -2,7 +2,7 @@
 
 Demo funcional de un pipeline de OCR/IDP para facturas (imágenes y PDFs) con múltiples agentes, conciliación por mayoría, validaciones y routing automático, además de UI y API FastAPI.
 
-## ✨ Características
+## Características
 
 - **Múltiples formatos**: Imágenes (JPEG, PNG) + PDFs (texto seleccionable o escaneados)
 - **5 agentes especializados**:
@@ -195,4 +195,4 @@ Todas las especificaciones se encuentran en `docs/specs-mvp/`:
 
 ---
 
-**Generado**: 2026-04-14 | **MVP v1.0** | Triunfo 🚀
+**Generado**: 2026-04-14 | **MVP v1.0** | Triunfo 
