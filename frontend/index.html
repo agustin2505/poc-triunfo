@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Triunfo — OCR/IDP Pipeline MVP</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-icon"></span>
+      <span class="logo-text">Triunfo</span>
+      <span class="logo-sub">OCR / IDP Pipeline</span>
+    </div>
+    <nav class="header-nav">
+      <a href="#" onclick="showView('upload')" id="nav-upload" class="nav-link active">Upload</a>
+      <a href="#" onclick="showView('history')" id="nav-history" class="nav-link">Historial</a>
+    </nav>
+    <div class="header-badge" id="health-badge">● Conectando...</div>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- ===================== VISTA: UPLOAD ===================== -->
+  <section id="view-upload" class="view active">
+    <div class="upload-container">
+      <h1 class="page-title">Procesar Factura</h1>
+
+      <!-- Drop zone -->
+      <div id="drop-zone" class="drop-zone" ondragover="event.preventDefault()" ondrop="handleDrop(event)" onclick="document.getElementById('file-input').click()">
+        <div class="drop-icon">📄</div>
+        <p class="drop-label">Arrastrá tu factura acá</p>
+        <p class="drop-sub">o hacé click para seleccionar (JPEG, PNG, PDF)</p>
+        <input type="file" id="file-input" accept="image/*,.pdf" style="display:none" onchange="handleFileSelect(event)" />
+      </div>
+
+      <!-- Preview -->
+      <div id="preview-area" class="preview-area hidden">
+        <img id="preview-img" src="" alt="Preview" />
+        <div class="preview-info">
+          <p id="preview-name" class="preview-filename"></p>
+          <p id="preview-size" class="preview-size"></p>
+        </div>
+      </div>
+
+      <!-- Opciones demo -->
+      <div class="options-panel">
+        <div class="option-group">
+          <label class="option-label">Proveedor (hint demo)</label>
+          <select id="provider-hint" class="select-input">
+            <option value="">Auto-detectar</option>
+            <option value="edenor-001">Edenor (Electricidad)</option>
+            <option value="metrogas-001">Metrogas (Gas)</option>
+            <option value="factura-interna-001">Factura Interna</option>
+          </select>
+        </div>
+        <div class="option-group">
+          <label class="option-label">Calidad del documento</label>
+          <select id="quality-hint" class="select-input">
+            <option value="good">Buena (300dpi, clara)</option>
+            <option value="medium">Media (algo borrosa)</option>
+            <option value="poor">Baja (mucho ruido)</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="btn-process" class="btn-primary" onclick="processDocument()" disabled>
+        Procesar Documento
+      </button>
+
+      <!-- Progress -->
+      <div id="progress-area" class="progress-area hidden">
+        <div class="progress-title">Procesando...</div>
+        <div class="pipeline-stages">
+          <div class="stage" id="stage-classified">
+            <span class="stage-dot"></span>
+            <span>Clasificando</span>
+          </div>
+          <div class="stage" id="stage-processing">
+            <span class="stage-dot"></span>
+            <span>Extrayendo (DocAI + Tesseract)</span>
+          </div>
+          <div class="stage" id="stage-validated">
+            <span class="stage-dot"></span>
+            <span>Validando</span>
+          </div>
+          <div class="stage" id="stage-routed">
+            <span class="stage-dot"></span>
+            <span>Enrutando</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== VISTA: RESULTADOS ===================== -->
+  <section id="view-results" class="view">
+    <div class="results-layout">
+
+      <!-- Columna izquierda: imagen + routing -->
+      <aside class="results-left">
+        <div class="card image-card">
+          <div class="card-header">
+            <h3>Documento</h3>
+            <button class="btn-ghost" onclick="showView('upload')">← Nuevo</button>
+          </div>
+          <img id="result-img" src="" alt="Documento" class="result-image" />
+          <div class="doc-meta">
+            <p id="result-filename" class="meta-text"></p>
+            <p id="result-provider-badge" class="provider-badge"></p>
+          </div>
+        </div>
+
+        <!-- Panel D: Routing Decision -->
+        <div class="card routing-card" id="routing-card">
+          <div class="card-header"><h3>Decisión de Routing</h3></div>
+          <div id="routing-decision" class="routing-decision">—</div>
+          <p id="routing-reason" class="routing-reason"></p>
+          <div id="routing-actions" class="routing-actions"></div>
+        </div>
+      </aside>
+
+      <!-- Columna derecha: 3 paneles -->
+      <div class="results-right">
+
+        <!-- Panel A: Datos Extraídos -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Panel A — Datos Extraídos</h3>
+            <span id="confidence-global" class="confidence-badge"></span>
+          </div>
+          <div class="table-wrapper">
+            <table class="data-table" id="fields-table">
+              <thead>
+                <tr>
+                  <th>Campo</th>
+                  <th>Valor</th>
+                  <th>Confidence</th>
+                  <th>Fuente</th>
+                  <th>DocAI</th>
+                  <th>Tesseract</th>
+                  <th>Vertex</th>
+                </tr>
+              </thead>
+              <tbody id="fields-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Panel B: Métricas de Modelos -->
+        <div class="card">
+          <div class="card-header"><h3>Panel B — Métricas de Modelos</h3></div>
+          <div class="metrics-grid" id="metrics-grid"></div>
+          <div class="timeline" id="pipeline-timeline"></div>
+        </div>
+
+        <!-- Panel C: Validaciones -->
+        <div class="card">
+          <div class="card-header"><h3>Panel C — Validaciones</h3></div>
+          <div id="validation-status" class="validation-status"></div>
+          <ul id="validation-errors" class="validation-list error-list"></ul>
+          <ul id="validation-warnings" class="validation-list warning-list"></ul>
+          <div id="missing-fields" class="missing-fields"></div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== VISTA: HISTORIAL ===================== -->
+  <section id="view-history" class="view">
+    <div class="history-container">
+      <div class="history-header">
+        <h1 class="page-title">Historial de Documentos</h1>
+        <button class="btn-danger" onclick="resetDocuments()">Limpiar todo</button>
+      </div>
+      <table class="data-table" id="history-table">
+        <thead>
+          <tr>
+            <th>Archivo</th>
+            <th>Proveedor</th>
+            <th>Routing</th>
+            <th>Confidence</th>
+            <th>Timestamp</th>
+            <th>Acción</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<!-- Modal de detalle de agente -->
+<div id="agent-modal" class="modal hidden" onclick="closeModal(event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="modal-title">Detalle Agente</h3>
+      <button class="btn-ghost" onclick="document.getElementById('agent-modal').classList.add('hidden')">✕</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<!-- SAP Response Modal -->
+<div id="sap-modal" class="modal hidden" onclick="closeModal(event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Respuesta SAP Mock</h3>
+      <button class="btn-ghost" onclick="document.getElementById('sap-modal').classList.add('hidden')">✕</button>
+    </div>
+    <div id="sap-modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
