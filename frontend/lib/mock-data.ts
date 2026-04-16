@@ -30,6 +30,7 @@ export interface ProcessedDocument {
   provider: string
   category: string
   routing: RoutingDecision
+  routing_reason?: string
   confidence_score: number
   extracted_fields: Record<string, ExtractedField>
   stages: PipelineStage[]

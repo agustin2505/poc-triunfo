@@ -238,6 +238,117 @@ def list_documents(limit: int = 20):
     }
 
 
+@app.get("/metrics", summary="Métricas del pipeline")
+def get_metrics():
+    """Estadísticas de procesamiento calculadas sobre los documentos en memoria."""
+    docs = list(_documents.values())
+
+    if not docs:
+        return {
+            "total_documents": 0,
+            "routing_distribution": {
+                "AUTO_APPROVE": 0,
+                "HITL_STANDARD": 0,
+                "HITL_PRIORITY": 0,
+                "AUTO_REJECT": 0,
+            },
+            "latency_p95_ms": 0,
+            "agent_stats": [],
+            "confidence_distribution": {
+                "0-0.5": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+                "0.5-0.7": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+                "0.7-0.85": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+                "0.85-1.0": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+            },
+        }
+
+    # Routing distribution
+    routing_dist = {"AUTO_APPROVE": 0, "HITL_STANDARD": 0, "HITL_PRIORITY": 0, "AUTO_REJECT": 0}
+    for doc in docs:
+        if doc.routing:
+            key = doc.routing.value
+            if key in routing_dist:
+                routing_dist[key] += 1
+
+    # Latency P95
+    durations = [
+        doc.processing_summary.total_duration_ms
+        for doc in docs
+        if doc.processing_summary
+    ]
+    latency_p95 = 0
+    if durations:
+        durations_sorted = sorted(durations)
+        idx = max(0, int(len(durations_sorted) * 0.95) - 1)
+        latency_p95 = durations_sorted[idx]
+
+    # Agent stats
+    agent_ids = ["agent_a", "agent_b", "agent_c"]
+    agent_names = {"agent_a": "DocAI", "agent_b": "Tesseract", "agent_c": "Vertex"}
+    agent_stats = []
+
+    for agent_id in agent_ids:
+        invocations = 0
+        successes = 0
+        timeouts = 0
+        total_duration = 0
+        confidences = []
+
+        for doc in docs:
+            output = doc.agent_outputs.get(agent_id)
+            if output:
+                invocations += 1
+                if output.status.value == "SUCCESS":
+                    successes += 1
+                elif output.status.value == "TIMEOUT":
+                    timeouts += 1
+                total_duration += output.duration_ms
+                field_confs = [f.confidence for f in output.fields.values() if f.confidence > 0]
+                if field_confs:
+                    confidences.append(sum(field_confs) / len(field_confs))
+
+        if invocations > 0:
+            agent_stats.append({
+                "name": agent_names.get(agent_id, agent_id),
+                "invocations": invocations,
+                "successes": successes,
+                "success_rate": successes / invocations,
+                "timeout_rate": timeouts / invocations,
+                "avg_duration_ms": total_duration / invocations,
+                "avg_confidence": sum(confidences) / len(confidences) if confidences else 0.0,
+            })
+
+    # Confidence distribution bucketed
+    buckets: dict = {
+        "0-0.5": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+        "0.5-0.7": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+        "0.7-0.85": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+        "0.85-1.0": {"agent_a": 0, "agent_b": 0, "agent_c": 0},
+    }
+    for doc in docs:
+        for agent_id in agent_ids:
+            output = doc.agent_outputs.get(agent_id)
+            if output:
+                for field in output.fields.values():
+                    c = field.confidence
+                    if c < 0.5:
+                        buckets["0-0.5"][agent_id] += 1
+                    elif c < 0.7:
+                        buckets["0.5-0.7"][agent_id] += 1
+                    elif c < 0.85:
+                        buckets["0.7-0.85"][agent_id] += 1
+                    else:
+                        buckets["0.85-1.0"][agent_id] += 1
+
+    return {
+        "total_documents": len(docs),
+        "routing_distribution": routing_dist,
+        "latency_p95_ms": latency_p95,
+        "agent_stats": agent_stats,
+        "confidence_distribution": buckets,
+    }
+
+
 @app.delete("/documents/reset", summary="Limpiar todos los documentos (demo only)")
 def reset_documents():
     """Limpia el estado en memoria. Solo para demos."""
