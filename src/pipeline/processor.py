@@ -1,4 +1,4 @@
-"""Orquestación del pipeline completo — Spec-02."""
+"""Orquestación del pipeline completo — Spec-02 + Spec-20."""
 from __future__ import annotations
 
 import time
@@ -10,6 +10,7 @@ from src.agents.agent_b_tesseract import TesseractAgent
 from src.agents.agent_c_vertex import VertexAgent
 from src.agents.agent_d_classifier import ClassifierAgent
 from src.agents.agent_e_validator import ValidatorNormalizerAgent
+from src.agents.image_orchestrator import ImageOrchestrator
 from src.conciliation.conciliator import Conciliator
 from src.logging_setup import setup_logging
 from src.models.document import (
@@ -24,14 +25,21 @@ logger = setup_logging("triunfo.pipeline")
 
 class Pipeline:
     """
-    Cadena de ejecución (Spec-02):
-    1. Agente D (clasificador) — obligatorio
-    2. Agentes A + B en paralelo (extracción)
-    3. Si ambos fallan → Agente C (fallback)
-    4. Agente E (normalización)
-    5. Conciliación
-    6. Validaciones genéricas + por proveedor
-    7. Routing final
+    Cadena de ejecución (Spec-02 + Spec-20):
+
+    Para imágenes (mime_type image/*):
+      1. Agente D (clasificador)
+      2. ImageOrchestrator — Claude + 3 Gemini en paralelo
+      3. Conciliación interna del orquestador
+      4. Validaciones + Routing
+
+    Para PDFs u otros (mime_type != image/*):
+      1. Agente D (clasificador)
+      2. Agentes A + B en paralelo
+      3. Si ambos fallan → Agente C (fallback Vertex)
+      4. Agente E (normalización)
+      5. Conciliación
+      6. Validaciones + Routing
     """
 
     def __init__(self):
@@ -41,6 +49,7 @@ class Pipeline:
         self.vertex = VertexAgent()
         self.normalizer = ValidatorNormalizerAgent()
         self.conciliator = Conciliator()
+        self.image_orchestrator = ImageOrchestrator()
 
     def process(
         self,
@@ -50,12 +59,33 @@ class Pipeline:
         uploaded_by: str = "demo@empresa.com",
         provider_hint: Optional[str] = None,
         quality_hint: str = "good",
+        mime_type: Optional[str] = None,
     ) -> DocumentResult:
         pipeline_start = time.monotonic()
         document_id = str(uuid.uuid4())
         stages = []
 
-        logger.info(f"[{document_id[:8]}] Pipeline iniciado | {file_name} | provider={provider_hint} | quality={quality_hint}")
+        # Inferir mime_type desde file_name si no se provee
+        if mime_type is None:
+            ext = (file_name or "").lower().rsplit(".", 1)[-1]
+            mime_type = {
+                "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "png": "image/png", "webp": "image/webp",
+                "tiff": "image/tiff", "tif": "image/tiff",
+                "pdf": "application/pdf",
+            }.get(ext, "image/jpeg")
+
+        # USE_IMAGE_ORCHESTRATOR=true activa Claude+Gemini en paralelo (requiere credenciales)
+        # Por defecto usa el flujo mock original para no romper tests ni demos sin credenciales
+        import os as _os
+        _orch_enabled = _os.getenv("USE_IMAGE_ORCHESTRATOR", "false").lower() == "true"
+        use_image_orchestrator = mime_type.startswith("image/") and _orch_enabled
+
+        logger.info(
+            f"[{document_id[:8]}] Pipeline iniciado | {file_name} | "
+            f"mime={mime_type} | provider={provider_hint} | quality={quality_hint} | "
+            f"image_orch={use_image_orchestrator}"
+        )
 
         ingestion = DocumentIngestion(
             document_id=document_id,
@@ -120,7 +150,16 @@ class Pipeline:
         provider_id = classification.provider_id
 
         # ------------------------------------------------------------------
-        # Paso 2: Extracción paralela A + B
+        # Paso 2 (imagen): ImageOrchestrator — Claude + 3 Gemini en paralelo
+        # ------------------------------------------------------------------
+        if use_image_orchestrator:
+            return self._process_image(
+                result, image_bytes, provider_id, quality_hint,
+                stages, pipeline_start,
+            )
+
+        # ------------------------------------------------------------------
+        # Paso 2 (PDF/otro): Extracción paralela A + B
         # ------------------------------------------------------------------
         result.status = DocumentStatus.PROCESSING
 
@@ -284,6 +323,124 @@ class Pipeline:
             f"{result.routing.value} | confidence={result.confidence_score:.2f} | "
             f"duration={result.processing_summary.total_duration_ms}ms | "
             f"models={','.join(models_used) or 'none'}"
+        )
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Rama imagen: ImageOrchestrator (Spec-20)
+    # ------------------------------------------------------------------
+
+    def _process_image(
+        self,
+        result: DocumentResult,
+        image_bytes: Optional[bytes],
+        provider_id: str,
+        quality_hint: str,
+        stages: list,
+        pipeline_start: float,
+    ) -> DocumentResult:
+        """Ejecuta el pipeline de imagen con Claude + 3 Gemini en paralelo."""
+        document_id = result.document_id
+        result.status = DocumentStatus.PROCESSING
+
+        t0 = time.monotonic()
+        orch_result = self.image_orchestrator.run_sync(
+            document_id=document_id,
+            image_bytes=image_bytes,
+            provider_id=provider_id,
+            quality=quality_hint,
+            run_fase2=False,
+        )
+        orch_ms = int((time.monotonic() - t0) * 1000)
+
+        stages.append(StageInfo(
+            name="image-orchestrator",
+            duration_ms=orch_ms,
+            status=AgentStatus.SUCCESS if orch_result.status in ("SUCCESS", "PARTIAL") else AgentStatus.FAILED,
+        ))
+
+        if orch_result.status == "FAILED":
+            result.status = DocumentStatus.ROUTED
+            result.routing = RoutingDecision.AUTO_REJECT
+            result.routing_reason = "ImageOrchestrator: todos los agentes fallaron"
+            result.processing_summary = ProcessingSummary(
+                total_duration_ms=int((time.monotonic() - pipeline_start) * 1000),
+                stages=stages,
+                missing_fields=["all"],
+            )
+            return result
+
+        # Pasar los agent_outputs sintéticos al result para trazabilidad
+        for aid, out in self.image_orchestrator.agent_outputs_from_result(orch_result).items():
+            result.agent_outputs[aid] = out
+
+        result.status = DocumentStatus.EXTRACTED
+
+        # ------------------------------------------------------------------
+        # Conciliación — usa el resultado ya conciliado del orquestador
+        # ------------------------------------------------------------------
+        t0 = time.monotonic()
+        extracted_fields = orch_result.fase1_conciliado
+        confidence_score = orch_result.confidence_score_global
+        routing = RoutingDecision(orch_result.routing)
+        routing_reason = (
+            f"ImageOrchestrator: {orch_result.status} "
+            f"({len(orch_result.models_succeeded)}/{len(orch_result.models_launched)} agentes OK)"
+        )
+        concil_ms = int((time.monotonic() - t0) * 1000)
+
+        stages.append(StageInfo(name="conciliation", duration_ms=concil_ms,
+                                status=AgentStatus.SUCCESS))
+        result.status = DocumentStatus.CONCILIATED
+        result.extracted_fields = extracted_fields
+        result.confidence_score = confidence_score
+
+        if orch_result.sap_payload:
+            result.sap_response = orch_result.sap_payload
+
+        # ------------------------------------------------------------------
+        # Validaciones genéricas + por proveedor
+        # ------------------------------------------------------------------
+        generic_val = validate_generic(extracted_fields, provider_name=result.provider or "")
+        provider_val = validate_provider(provider_id, extracted_fields)
+        final_val = merge_validation_results([generic_val, provider_val])
+        result.validation = final_val
+        result.status = DocumentStatus.VALIDATED
+
+        if final_val.errors:
+            if routing == RoutingDecision.AUTO_APPROVE:
+                routing = RoutingDecision.HITL_PRIORITY
+                routing_reason = f"Validación fallida: {final_val.errors[0]}"
+                confidence_score -= 0.10
+        elif final_val.warnings:
+            if routing == RoutingDecision.AUTO_APPROVE and confidence_score < 0.92:
+                routing = RoutingDecision.HITL_STANDARD
+                routing_reason = f"Warnings presentes: {len(final_val.warnings)}"
+            confidence_score -= 0.05
+
+        for w in orch_result.advertencias:
+            if w not in final_val.warnings:
+                final_val.warnings.append(w)
+
+        result.confidence_score = round(max(0.0, confidence_score), 3)
+        result.routing = routing
+        result.routing_reason = routing_reason
+        result.status = DocumentStatus.ROUTED
+
+        missing = [fname for fname, cf in extracted_fields.items() if cf.value is None]
+        result.processing_summary = ProcessingSummary(
+            total_duration_ms=int((time.monotonic() - pipeline_start) * 1000),
+            stages=stages,
+            models_used=orch_result.models_succeeded,
+            missing_fields=missing,
+        )
+
+        logger.info(
+            f"[{document_id[:8]}] Pipeline imagen completado: "
+            f"{result.routing.value} | confidence={result.confidence_score:.2f} | "
+            f"duration={result.processing_summary.total_duration_ms}ms | "
+            f"models={','.join(orch_result.models_succeeded) or 'none'}"
         )
 
         return result
