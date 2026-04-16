@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatFileSize, type PipelineStage } from "@/lib/mock-data"
+import { uploadDocument } from "@/lib/api"
 
 const providers = [
   { value: "auto", label: "Auto-detectar" },
@@ -37,6 +38,8 @@ const initialStages: PipelineStage[] = [
   { name: "ROUTED", duration_ms: 0, status: "PENDING" },
 ]
 
+const STAGE_DURATIONS = [150, 600, 120, 1200, 300, 200]
+
 export default function ProcessPage() {
   const router = useRouter()
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -47,68 +50,73 @@ export default function ProcessPage() {
   const [stages, setStages] = useState<PipelineStage[]>(initialStages)
   const [detectedProvider, setDetectedProvider] = useState<string | null>(null)
   const [detectedCategory, setDetectedCategory] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const handleFileSelect = useCallback((file: File) => {
     setSelectedFile(file)
-    
-    // Create preview URL for images
     if (file.type.startsWith("image/")) {
-      const url = URL.createObjectURL(file)
-      setFilePreview(url)
+      setFilePreview(URL.createObjectURL(file))
     } else {
-      // For PDFs, we'll show a placeholder
       setFilePreview(null)
     }
-    
-    // Reset processing state
     setStages(initialStages)
     setDetectedProvider(null)
     setDetectedCategory(null)
     setIsProcessing(false)
+    setError(null)
   }, [])
 
-  const simulateProcessing = useCallback(async () => {
+  const handleProcess = useCallback(async () => {
     if (!selectedFile) return
-
     setIsProcessing(true)
-    const durations = [120, 800, 100, 1600, 250, 150]
-    const stageNames = ["INGESTED", "CLASSIFIED", "PROCESSING", "EXTRACTED", "VALIDATED", "ROUTED"]
+    setError(null)
 
-    for (let i = 0; i < stageNames.length; i++) {
-      // Set current stage to processing
-      setStages(prev => prev.map((s, idx) => 
-        idx === i ? { ...s, status: "PROCESSING" } : s
-      ))
+    // Lanzar fetch al backend en paralelo con la animación visual
+    const fetchPromise = uploadDocument(selectedFile, {
+      providerHint,
+      qualityHint,
+    })
 
-      // Wait for the simulated duration
-      await new Promise(resolve => setTimeout(resolve, durations[i]))
-
-      // Set stage to success
-      setStages(prev => prev.map((s, idx) => 
-        idx === i ? { ...s, status: "SUCCESS", duration_ms: durations[i] } : s
-      ))
-
-      // After classification, show detected provider
-      if (stageNames[i] === "CLASSIFIED") {
-        setDetectedProvider("Edenor")
-        setDetectedCategory("SERVICIOS")
-      }
+    // Animación optimista de stages mientras el backend procesa
+    for (let i = 0; i < initialStages.length; i++) {
+      setStages((prev) =>
+        prev.map((s, idx) => (idx === i ? { ...s, status: "PROCESSING" } : s))
+      )
+      await new Promise((resolve) => setTimeout(resolve, STAGE_DURATIONS[i]))
+      setStages((prev) =>
+        prev.map((s, idx) =>
+          idx === i ? { ...s, status: "SUCCESS", duration_ms: STAGE_DURATIONS[i] } : s
+        )
+      )
+      if (i === 1) setDetectedProvider("Detectando...")
     }
 
-    // Navigate to results after a short delay
-    setTimeout(() => {
-      router.push("/resultado/a1b2c3d4")
-    }, 500)
-  }, [selectedFile, router])
+    // Esperar la respuesta real del backend
+    try {
+      const result = await fetchPromise
 
-  // Cleanup preview URL on unmount
-  useEffect(() => {
-    return () => {
-      if (filePreview) {
-        URL.revokeObjectURL(filePreview)
+      // Actualizar con datos reales
+      if (result.provider) setDetectedProvider(result.provider)
+      if (result.category) setDetectedCategory(result.category)
+      if (result.processing_summary?.stages) {
+        setStages(
+          result.processing_summary.stages.map((s) => ({
+            name: s.name,
+            duration_ms: s.duration_ms,
+            status: s.status as PipelineStage["status"],
+          }))
+        )
       }
+
+      setTimeout(() => router.push(`/resultado/${result.document_id}`), 500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al procesar el documento")
+      setIsProcessing(false)
+      setStages(initialStages)
+      setDetectedProvider(null)
+      setDetectedCategory(null)
     }
-  }, [filePreview])
+  }, [selectedFile, providerHint, qualityHint, router])
 
   const handleReset = useCallback(() => {
     setSelectedFile(null)
@@ -117,9 +125,16 @@ export default function ProcessPage() {
     setDetectedProvider(null)
     setDetectedCategory(null)
     setIsProcessing(false)
+    setError(null)
   }, [])
 
-  // Idle state - no file selected
+  useEffect(() => {
+    return () => {
+      if (filePreview) URL.revokeObjectURL(filePreview)
+    }
+  }, [filePreview])
+
+  // Sin archivo seleccionado
   if (!selectedFile) {
     return (
       <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-8">
@@ -143,7 +158,7 @@ export default function ProcessPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {providers.map(p => (
+                  {providers.map((p) => (
                     <SelectItem key={p.value} value={p.value}>
                       {p.label}
                     </SelectItem>
@@ -161,7 +176,7 @@ export default function ProcessPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {qualities.map(q => (
+                  {qualities.map((q) => (
                     <SelectItem key={q.value} value={q.value}>
                       {q.label}
                     </SelectItem>
@@ -179,7 +194,7 @@ export default function ProcessPage() {
     )
   }
 
-  // Processing state - file selected
+  // Archivo seleccionado
   return (
     <div className="min-h-[calc(100vh-4rem)] p-8">
       <div className="mx-auto max-w-6xl">
@@ -190,8 +205,14 @@ export default function ProcessPage() {
           </Button>
         </div>
 
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
         <div className="grid grid-cols-5 gap-8">
-          {/* Left column - Image preview */}
+          {/* Columna izquierda - Preview */}
           <div className="col-span-2 space-y-4">
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
               {filePreview ? (
@@ -222,25 +243,25 @@ export default function ProcessPage() {
             </div>
           </div>
 
-          {/* Right column - Pipeline stepper */}
+          {/* Columna derecha - Pipeline */}
           <div className="col-span-3">
             <div className="rounded-xl border border-slate-200 bg-white p-6">
               <h2 className="mb-6 text-lg font-semibold text-slate-900">
                 Estado del Pipeline
               </h2>
-              
-              <PipelineStepper 
-                stages={stages} 
+
+              <PipelineStepper
+                stages={stages}
                 provider={detectedProvider ?? undefined}
                 category={detectedCategory ?? undefined}
               />
 
               {!isProcessing && (
                 <div className="mt-8">
-                  <Button 
-                    className="w-full bg-indigo-600 hover:bg-indigo-700" 
+                  <Button
+                    className="w-full bg-indigo-600 hover:bg-indigo-700"
                     size="lg"
-                    onClick={simulateProcessing}
+                    onClick={handleProcess}
                   >
                     Iniciar Procesamiento
                   </Button>

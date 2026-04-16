@@ -1,9 +1,8 @@
 "use client"
 
-import { use } from "react"
-import Image from "next/image"
+import { use, useEffect, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, FileText } from "lucide-react"
+import { ArrowLeft, FileText, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ExtractedDataTable } from "@/components/extracted-data-table"
 import { ModelMetricsPanel } from "@/components/model-metrics-panel"
@@ -11,7 +10,8 @@ import { ValidationPanel } from "@/components/validation-panel"
 import { RoutingDecisionPanel } from "@/components/routing-decision-panel"
 import { RoutingBadge } from "@/components/routing-badge"
 import { ConfidenceBadge } from "@/components/confidence-badge"
-import { mockDocument, mockDocuments, formatDate, formatFileSize } from "@/lib/mock-data"
+import { formatDate, formatFileSize, type ProcessedDocument } from "@/lib/mock-data"
+import { getDocument, adaptDocument, approveDocument } from "@/lib/api"
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -19,9 +19,60 @@ interface PageProps {
 
 export default function ResultadoPage({ params }: PageProps) {
   const { id } = use(params)
-  
-  // Find document by ID or use mock
-  const document = mockDocuments.find(d => d.document_id === id) || mockDocument
+  const [document, setDocument] = useState<ProcessedDocument | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [approving, setApproving] = useState(false)
+  const [approved, setApproved] = useState(false)
+
+  useEffect(() => {
+    getDocument(id)
+      .then((raw) => {
+        setDocument(adaptDocument(raw))
+        setLoading(false)
+      })
+      .catch((err) => {
+        setError(err.message)
+        setLoading(false)
+      })
+  }, [id])
+
+  const handleApprove = async () => {
+    if (!document) return
+    setApproving(true)
+    try {
+      await approveDocument(document.document_id)
+      setApproved(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al enviar a SAP")
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+        <div className="flex items-center gap-3 text-slate-500">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Cargando resultado...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !document) {
+    return (
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 font-medium">{error || "Documento no encontrado"}</p>
+          <Link href="/" className="mt-4 inline-block">
+            <Button variant="outline">Volver al inicio</Button>
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-[calc(100vh-4rem)]">
@@ -41,9 +92,7 @@ export default function ResultadoPage({ params }: PageProps) {
                 <h1 className="text-lg font-semibold text-slate-900">
                   Resultados del Documento
                 </h1>
-                <p className="text-sm text-slate-500">
-                  ID: {document.document_id}
-                </p>
+                <p className="text-sm text-slate-500">ID: {document.document_id}</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -57,15 +106,26 @@ export default function ResultadoPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Main content */}
+      {/* Contenido */}
       <div className="mx-auto max-w-7xl p-6">
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {approved && (
+          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            Documento enviado a SAP correctamente.
+          </div>
+        )}
+
         <div className="flex gap-6">
-          {/* Left column - Image preview (sticky) */}
+          {/* Columna izquierda - Preview sticky */}
           <div className="w-[35%] flex-shrink-0">
             <div className="sticky top-36 space-y-4">
               <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                 <div className="relative aspect-[3/4] w-full bg-slate-100">
-                  {/* Placeholder for invoice image */}
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
                       <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-slate-200">
@@ -78,7 +138,6 @@ export default function ResultadoPage({ params }: PageProps) {
                 </div>
               </div>
 
-              {/* Document info card */}
               <div className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -93,9 +152,7 @@ export default function ResultadoPage({ params }: PageProps) {
                   </div>
                   <div>
                     <p className="text-slate-500">Procesado</p>
-                    <p className="font-medium text-slate-900">
-                      {formatDate(document.created_at)}
-                    </p>
+                    <p className="font-medium text-slate-900">{formatDate(document.created_at)}</p>
                   </div>
                   <div>
                     <p className="text-slate-500">Duración total</p>
@@ -108,25 +165,24 @@ export default function ResultadoPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Right column - Results panels (scrollable) */}
+          {/* Columna derecha - Paneles */}
           <div className="flex-1 space-y-6">
-            {/* Panel A - Extracted Data */}
-            <ExtractedDataTable 
-              fields={document.extracted_fields} 
+            <ExtractedDataTable
+              fields={document.extracted_fields}
               routing={document.routing}
             />
-
-            {/* Panel B - Model Metrics */}
-            <ModelMetricsPanel 
+            <ModelMetricsPanel
               stages={document.stages}
               confidenceScore={document.confidence_score}
             />
-
-            {/* Panel C - Validations */}
             <ValidationPanel validation={document.validation} />
-
-            {/* Panel D - Routing Decision */}
-            <RoutingDecisionPanel routing={document.routing} />
+            <RoutingDecisionPanel
+              routing={document.routing}
+              reason={document.routing_reason}
+              onApprove={handleApprove}
+              approving={approving}
+              approved={approved}
+            />
           </div>
         </div>
       </div>

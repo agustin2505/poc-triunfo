@@ -1,12 +1,14 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Clock, AlertTriangle, FileText } from "lucide-react"
+import { Clock, AlertTriangle, FileText, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { RoutingBadge } from "@/components/routing-badge"
 import { ConfidenceBadge } from "@/components/confidence-badge"
-import { mockDocuments, formatDate, type RoutingDecision } from "@/lib/mock-data"
+import { formatDate, type ProcessedDocument } from "@/lib/mock-data"
+import { listDocuments, adaptListItem } from "@/lib/api"
 import {
   Table,
   TableBody,
@@ -16,14 +18,30 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-// Filter for HITL documents only
-const hitlDocuments = mockDocuments.filter(
-  doc => doc.routing === "HITL_STANDARD" || doc.routing === "HITL_PRIORITY"
-)
-
 export default function ColaHITLPage() {
-  const priorityCount = hitlDocuments.filter(d => d.routing === "HITL_PRIORITY").length
-  const standardCount = hitlDocuments.filter(d => d.routing === "HITL_STANDARD").length
+  const [documents, setDocuments] = useState<ProcessedDocument[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    listDocuments(100)
+      .then((data) => {
+        const hitl = data.documents
+          .map(adaptListItem)
+          .filter(
+            (d) => d.routing === "HITL_STANDARD" || d.routing === "HITL_PRIORITY"
+          )
+        setDocuments(hitl)
+        setLoading(false)
+      })
+      .catch((err) => {
+        setError(err.message)
+        setLoading(false)
+      })
+  }, [])
+
+  const priorityCount = documents.filter((d) => d.routing === "HITL_PRIORITY").length
+  const standardCount = documents.filter((d) => d.routing === "HITL_STANDARD").length
 
   return (
     <div className="min-h-[calc(100vh-4rem)] p-6">
@@ -42,7 +60,7 @@ export default function ColaHITLPage() {
               </div>
               <div>
                 <p className="text-sm text-slate-500">Total en cola</p>
-                <p className="text-2xl font-bold text-slate-900">{hitlDocuments.length}</p>
+                <p className="text-2xl font-bold text-slate-900">{documents.length}</p>
               </div>
             </div>
           </div>
@@ -72,13 +90,22 @@ export default function ColaHITLPage() {
           </div>
         </div>
 
-        {/* Documents table */}
+        {/* Tabla */}
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
           <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
             <h3 className="font-semibold text-slate-900">Documentos Pendientes</h3>
           </div>
-          
-          {hitlDocuments.length === 0 ? (
+
+          {loading ? (
+            <div className="flex items-center justify-center py-16 gap-3 text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Cargando cola...</span>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          ) : documents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 mb-4">
                 <FileText className="h-8 w-8 text-emerald-600" />
@@ -93,7 +120,6 @@ export default function ColaHITLPage() {
                   <TableHead>ID</TableHead>
                   <TableHead>Archivo</TableHead>
                   <TableHead>Proveedor</TableHead>
-                  <TableHead>Categoría</TableHead>
                   <TableHead className="text-center">Confidence</TableHead>
                   <TableHead className="text-center">Estado</TableHead>
                   <TableHead>Fecha</TableHead>
@@ -101,21 +127,18 @@ export default function ColaHITLPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {hitlDocuments.map((doc) => (
-                  <TableRow 
+                {documents.map((doc) => (
+                  <TableRow
                     key={doc.document_id}
                     className={cn(
                       doc.routing === "HITL_PRIORITY" && "bg-orange-50/50"
                     )}
                   >
-                    <TableCell className="font-mono text-sm">{doc.document_id}</TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {doc.document_id.slice(0, 8)}
+                    </TableCell>
                     <TableCell className="max-w-[200px] truncate">{doc.filename}</TableCell>
                     <TableCell>{doc.provider}</TableCell>
-                    <TableCell>
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                        {doc.category}
-                      </span>
-                    </TableCell>
                     <TableCell className="text-center">
                       <ConfidenceBadge confidence={doc.confidence_score} size="sm" />
                     </TableCell>
