@@ -1,7 +1,7 @@
 # Triunfo — Spec-23 Telegram Entrega de Resultado (PDF + Resumen) v1.1
 # Version: 1.1
 # Fecha: 2026-04-20
-# Estado: Pendiente
+# Estado: Done
 
 ## Objetivo
 Una vez que el pipeline termina de procesar la imagen, formatear el resultado y enviarlo al usuario vía Telegram. Si el routing es AUTO_APPROVE o HITL_STANDARD, adjuntar el PDF generado. Si el routing es HITL_PRIORITY o AUTO_REJECT, notificar con detalle para que el usuario tome acción.

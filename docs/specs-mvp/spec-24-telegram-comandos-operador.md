@@ -1,7 +1,7 @@
 # Triunfo — Spec-24 Telegram Comandos de Operador v1.1
 # Version: 1.1
 # Fecha: 2026-04-20
-# Estado: Pendiente
+# Estado: Done
 
 ## Objetivo
 Exponer comandos de Telegram que permitan al operador consultar el estado de documentos procesados y aprobar o rechazar el envío a SAP, todo desde el chat de Telegram. Este spec cubre `/ayuda`, `/help`, `/estado`, `/aprobar`, `/rechazar` y los callbacks de los botones inline del Spec-23.

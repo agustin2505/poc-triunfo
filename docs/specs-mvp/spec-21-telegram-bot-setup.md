@@ -1,7 +1,7 @@
 # Triunfo — Spec-21 Telegram Bot Setup y Ciclo de Vida v1.1
 # Version: 1.1
 # Fecha: 2026-04-20
-# Estado: Pendiente
+# Estado: Done
 
 ## Objetivo
 Integrar un bot de Telegram al sistema Triunfo como canal de ingesta de facturas. El bot debe inicializarse junto con el servidor FastAPI via `lifespan`, soportar dos modos de operación (polling para desarrollo, webhook para producción), y exponer un endpoint `/telegram/webhook` en la API. Este spec cubre únicamente el setup, ciclo de vida y conectividad — no el procesamiento de imágenes ni la entrega de resultados.
