@@ -41,15 +41,17 @@ def setup_logging(name: str, log_file: str = "logs/triunfo.log") -> logging.Logg
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Handler: Console (stdout)
-    console_handler = logging.StreamHandler()
+    # Handler: Console (stdout) — UTF-8 para evitar UnicodeEncodeError en Windows
+    import sys, io
+    utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    console_handler = logging.StreamHandler(utf8_stdout)
     console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
     # Handler: Archivo
     try:
-        file_handler = logging.FileHandler(log_file)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)

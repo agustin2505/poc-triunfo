@@ -136,6 +136,7 @@ async def upload_document(
             uploaded_by=uploaded_by,
             provider_hint=provider_hint,
             quality_hint=quality_hint,
+            mime_type=content_type,
         )
 
         logger.info(
