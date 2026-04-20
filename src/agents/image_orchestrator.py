@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from src.agents.claude_vision import ClaudeVisionAgent
+from src.utils.image_preprocessor import ImagePreprocessor, ImagePreprocessorError
 from src.agents.vertex.gemini_flash import GeminiFlashAgent
 from src.agents.vertex.gemini_flash_lite import GeminiFlashLiteAgent
 from src.agents.vertex.gemini_pro import GeminiProAgent
@@ -95,6 +96,24 @@ class ImageOrchestrator:
         )
 
         start = time.monotonic()
+
+        # Preprocesar imagen antes de enviar a modelos
+        try:
+            preprocessor = ImagePreprocessor()
+            processed = preprocessor.process(image_bytes, mime_type="image/jpeg")
+            image_bytes = processed.image_bytes
+            if processed.quality_score < 0.15:
+                advertencias.append(f"Calidad de imagen baja (score={processed.quality_score})")
+        except ImagePreprocessorError as e:
+            return OrchestratorResult(
+                document_id=document_id,
+                status="FAILED",
+                routing=RoutingDecision.AUTO_REJECT.value,
+                advertencias=[str(e)],
+                models_launched=models_launched,
+                models_succeeded=[],
+                models_failed=models_launched,
+            )
 
         # ------------------------------------------------------------------
         # Fase 1 — extracción paralela
