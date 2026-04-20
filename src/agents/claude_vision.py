@@ -30,7 +30,7 @@ class ClaudeVisionAgent(BaseAgent):
     """
 
     agent_id = "claude-vision"
-    timeout_ms = 30000
+    timeout_ms = 60000
 
     def __init__(self) -> None:
         self._client = None

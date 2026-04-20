@@ -116,57 +116,70 @@ class ImageOrchestrator:
             )
 
         # ------------------------------------------------------------------
-        # Fase 1 — extracción paralela
+        # Fase 1 — extracción paralela con early exit
         # ------------------------------------------------------------------
-        with ThreadPoolExecutor(max_workers=len(self._agents)) as executor:
-            futures = {
-                executor.submit(
-                    agent.run,
-                    document_id,
-                    image_bytes=image_bytes,
-                    provider_id=provider_id,
-                    quality=quality,
-                ): agent.agent_id
-                for agent in self._agents
-            }
+        executor = ThreadPoolExecutor(max_workers=len(self._agents))
+        futures = {
+            executor.submit(
+                agent.run,
+                document_id,
+                image_bytes=image_bytes,
+                provider_id=provider_id,
+                quality=quality,
+            ): agent.agent_id
+            for agent in self._agents
+        }
+        executor.shutdown(wait=False)  # no bloquear al salir — early exit
 
-            remaining = timeout - (time.monotonic() - start)
-            try:
-                for future in as_completed(futures, timeout=max(1.0, remaining)):
-                    aid = futures[future]
-                    try:
-                        output = future.result()
-                        agent_outputs[aid] = output
-                        durations[aid] = output.duration_ms
-                        _logger.debug(
-                            f"[{document_id[:8]}] {aid} "
-                            f"status={output.status.value} "
-                            f"duration={output.duration_ms}ms"
-                        )
-                    except Exception as exc:
-                        _logger.error(f"[{document_id[:8]}] {aid} excepción: {exc}")
-                        agent_outputs[aid] = AgentOutput(
-                            document_id=document_id,
-                            agent_id=aid,
-                            status=AgentStatus.FAILED,
-                            duration_ms=0,
-                            metadata=AgentMetadata(model_version=f"{aid}-error"),
-                        )
-                        durations[aid] = 0
-            except FutureTimeout:
-                _logger.warning(
-                    f"[{document_id[:8]}] ImageOrchestrator timeout global. "
-                    f"Recibidos: {list(agent_outputs.keys())}"
-                )
-                for aid in [futures[f] for f in futures if futures[f] not in agent_outputs]:
+        remaining = timeout - (time.monotonic() - start)
+        try:
+            for future in as_completed(futures, timeout=max(1.0, remaining)):
+                aid = futures[future]
+                try:
+                    output = future.result()
+                    agent_outputs[aid] = output
+                    durations[aid] = output.duration_ms
+                    _logger.debug(
+                        f"[{document_id[:8]}] {aid} "
+                        f"status={output.status.value} "
+                        f"duration={output.duration_ms}ms"
+                    )
+                except Exception as exc:
+                    _logger.error(f"[{document_id[:8]}] {aid} excepción: {exc}")
                     agent_outputs[aid] = AgentOutput(
                         document_id=document_id,
                         agent_id=aid,
-                        status=AgentStatus.TIMEOUT,
-                        duration_ms=timeout * 1000,
-                        metadata=AgentMetadata(model_version=f"{aid}-timeout"),
+                        status=AgentStatus.FAILED,
+                        duration_ms=0,
+                        metadata=AgentMetadata(model_version=f"{aid}-error"),
                     )
-                    advertencias.append(f"Agente {aid} alcanzó el timeout global")
+                    durations[aid] = 0
+
+                # Early exit: si ya tenemos suficientes agentes OK, no esperamos más
+                n_ok = sum(1 for o in agent_outputs.values() if o.status == AgentStatus.SUCCESS)
+                if n_ok >= min_ok and len(agent_outputs) >= min_ok:
+                    _logger.info(
+                        f"[{document_id[:8]}] Early exit: {n_ok} agente(s) OK "
+                        f"({len(agent_outputs)}/{len(self._agents)} respondidos)"
+                    )
+                    break
+        except FutureTimeout:
+            _logger.warning(
+                f"[{document_id[:8]}] ImageOrchestrator timeout global. "
+                f"Recibidos: {list(agent_outputs.keys())}"
+            )
+
+        # Marcar como TIMEOUT los agentes que no respondieron
+        for aid in [futures[f] for f in futures if futures[f] not in agent_outputs]:
+            agent_outputs[aid] = AgentOutput(
+                document_id=document_id,
+                agent_id=aid,
+                status=AgentStatus.TIMEOUT,
+                duration_ms=timeout * 1000,
+                metadata=AgentMetadata(model_version=f"{aid}-timeout"),
+            )
+            durations[aid] = timeout * 1000
+            advertencias.append(f"Agente {aid} no completó a tiempo")
 
         successful = {
             aid: out for aid, out in agent_outputs.items()

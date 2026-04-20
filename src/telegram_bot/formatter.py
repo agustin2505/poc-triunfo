@@ -31,10 +31,17 @@ def _truncate(text: str, limit: int = 4096) -> str:
 
 def format_result_message(result) -> str:
     confianza_pct = f"{result.confidence_score * 100:.0f}%"
-    routing_label = result.routing.value if result.routing else "—"
+    routing = result.routing.value if result.routing else "—"
+
+    is_low_confidence = result.routing and result.routing.value == "HITL_PRIORITY"
+    header = (
+        "<b>⚠️ Factura procesada con confianza baja</b>\n"
+        if is_low_confidence
+        else "<b>Factura procesada correctamente</b>\n"
+    )
 
     lines = [
-        "<b>Factura procesada correctamente</b>\n",
+        header,
         f"<b>Proveedor:</b>  {result.provider or 'no detectado'}",
         f"<b>Número:</b>     {_fmt_field(result, 'reference_number')}",
         f"<b>Fecha:</b>      {_fmt_field(result, 'issue_date')}",
@@ -42,9 +49,24 @@ def format_result_message(result) -> str:
         f"<b>IVA:</b>        {_fmt_field(result, 'tax_amount', is_amount=True)}",
         f"<b>Total:</b>      {_fmt_field(result, 'total_amount', is_amount=True)}",
         "",
-        f"<b>Confianza:</b> {confianza_pct} ({routing_label})",
+        f"<b>Confianza:</b> {confianza_pct} ({routing})",
+    ]
+
+    if is_low_confidence:
+        low_fields = [
+            (name, field)
+            for name, field in result.extracted_fields.items()
+            if field.confidence < 0.70 and field.value is not None
+        ]
+        if low_fields:
+            lines.append("\n<i>Campos con baja confianza — revisá antes de aprobar:</i>")
+            for name, field in low_fields:
+                pct = f"{field.confidence * 100:.0f}%"
+                lines.append(f"  • <b>{name}:</b> {field.value} ({pct})")
+
+    lines += [
         "",
-        "Usá /aprobar para enviar a SAP o /rechazar para descartar.",
+        "Usá los botones para aprobar o rechazar.",
         f"<code>ID: {result.document_id}</code>",
     ]
     return _truncate("\n".join(lines))

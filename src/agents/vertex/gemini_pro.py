@@ -20,7 +20,7 @@ _RETRYABLE_CODES = {"RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL"}
 
 
 class GeminiProAgent(BaseAgent):
-    """Agente de alta precisión — gemini-2.5-pro-preview.
+    """Agente de alta precisión — gemini-2.5-pro-preview-05-06.
 
     Optimizado para facturas con layouts complejos o baja calidad de imagen.
     El más lento del trío: se usa como desempate cuando los modelos rápidos
@@ -53,7 +53,7 @@ class GeminiProAgent(BaseAgent):
             )
 
         self._location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
-        model_id = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro-preview")
+        model_id = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro-preview-05-06")
 
         vertexai.init(project=project, location=self._location)
         self._model = GenerativeModel(model_id)
