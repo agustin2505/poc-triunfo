@@ -1,27 +1,50 @@
 """API FastAPI para el MVP Triunfo."""
 from __future__ import annotations
 
-import uuid
+import os
 import traceback
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.models.document import DocumentResult, RoutingDecision
+from src import store
+from src.models.document import DocumentResult
 from src.pipeline.processor import Pipeline
-from src.sap.mock import post_to_sap
 from src.logging_setup import setup_logging, get_memory_logs
 
 logger = setup_logging("triunfo.api")
+
+_pipeline = Pipeline()
+_telegram_bot = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _telegram_bot
+    if os.getenv("TELEGRAM_BOT_TOKEN"):
+        try:
+            from src.telegram_bot.bot import TelegramBot
+            _telegram_bot = TelegramBot()
+            await _telegram_bot.initialize(app)
+        except Exception:
+            logger.warning("Bot de Telegram no pudo iniciarse:\n" + traceback.format_exc())
+    else:
+        logger.info("TELEGRAM_BOT_TOKEN no configurado — bot deshabilitado")
+    yield
+    if _telegram_bot:
+        await _telegram_bot.shutdown()
+
 
 app = FastAPI(
     title="Triunfo — MVP OCR/IDP",
     description="Pipeline de extracción de facturas con 5 agentes y conciliación por mayoría",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 logger.info("=== Triunfo API iniciando ===")
@@ -33,15 +56,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Servir frontend estático
-import os
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 if os.path.exists(FRONTEND_DIR):
     app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
-
-# Storage en memoria para el MVP
-_documents: Dict[str, DocumentResult] = {}
-_pipeline = Pipeline()
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +163,7 @@ async def upload_document(
             f"confidence={result.confidence_score:.2f}"
         )
 
-        _documents[result.document_id] = result
+        store.save(result)
         return result
 
     except HTTPException as e:
@@ -164,7 +181,7 @@ async def upload_document(
 @app.get("/document/{document_id}", summary="Obtener resultado de procesamiento")
 def get_document(document_id: str) -> DocumentResult:
     """Retorna el estado completo del documento procesado."""
-    doc = _documents.get(document_id)
+    doc = store.get(document_id)
     if not doc:
         raise HTTPException(status_code=404, detail=f"Documento {document_id!r} no encontrado")
     return doc
@@ -172,57 +189,22 @@ def get_document(document_id: str) -> DocumentResult:
 
 @app.post("/document/{document_id}/approve", summary="Aprobar y enviar a SAP")
 def approve_document(document_id: str):
-    """
-    Envía el documento al SAP mock.
-    Solo disponible para documentos con routing AUTO_APPROVE o HITL_STANDARD aprobado.
-    """
-    doc = _documents.get(document_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail=f"Documento {document_id!r} no encontrado")
-
-    if doc.routing == RoutingDecision.AUTO_REJECT:
-        raise HTTPException(
-            status_code=422,
-            detail="El documento fue rechazado automáticamente y no puede enviarse a SAP",
-        )
-
-    # Obtener campos necesarios para SAP
-    fields = doc.extracted_fields
-    ref = (fields.get("reference_number") or type("", (), {"value": None})()).value
-    total = (fields.get("total_amount") or type("", (), {"value": 0})()).value
-    currency = (fields.get("currency") or type("", (), {"value": "ARS"})()).value
-    issue_date = (fields.get("issue_date") or type("", (), {"value": ""})()).value
-
-    request_id = str(uuid.uuid4())
-    from src.config.sede import get_sede
-    sede = get_sede(doc.ingestion.sede_id if doc.ingestion else "demo-001")
-    sap_company = sede.sap_company_code if sede else "AR00"
-
-    sap_response = post_to_sap(
-        request_id=request_id,
-        document_id=document_id,
-        sede_id=doc.ingestion.sede_id if doc.ingestion else "demo-001",
-        provider=doc.provider or "",
-        provider_id=doc.provider_id or "",
-        reference_number=str(ref) if ref else f"REF-{document_id[:8]}",
-        total_amount=float(total) if total else 0.0,
-        currency=str(currency) if currency else "ARS",
-        issue_date=str(issue_date) if issue_date else "",
-        sap_company_code=sap_company,
-        extracted_fields={k: v.model_dump() for k, v in fields.items()},
-    )
-
-    doc.sap_response = sap_response
-    _documents[document_id] = doc
-    return sap_response
+    """Envía el documento al SAP mock."""
+    try:
+        return store.approve(document_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.get("/documents", summary="Listar documentos procesados")
 def list_documents(limit: int = 20):
     """Lista los últimos N documentos procesados."""
-    docs = list(_documents.values())[-limit:]
+    all_docs = store.all_documents()
+    docs = all_docs[-limit:]
     return {
-        "total": len(_documents),
+        "total": store.count(),
         "returned": len(docs),
         "documents": [
             {
@@ -242,7 +224,7 @@ def list_documents(limit: int = 20):
 @app.get("/metrics", summary="Métricas del pipeline")
 def get_metrics():
     """Estadísticas de procesamiento calculadas sobre los documentos en memoria."""
-    docs = list(_documents.values())
+    docs = store.all_documents()
 
     if not docs:
         return {
@@ -353,7 +335,7 @@ def get_metrics():
 @app.delete("/documents/reset", summary="Limpiar todos los documentos (demo only)")
 def reset_documents():
     """Limpia el estado en memoria. Solo para demos."""
-    _documents.clear()
+    store.reset()
     from src.validation.generic import clear_duplicate_registry
     from src.sap.mock import clear_sap_registry
     clear_duplicate_registry()
