@@ -1,7 +1,7 @@
 # Triunfo — Spec-22 Telegram Recepción y Normalización de Foto v1.1
 # Version: 1.1
 # Fecha: 2026-04-20
-# Estado: Pendiente
+# Estado: Done
 
 ## Objetivo
 Manejar los mensajes de foto (y documentos de imagen/PDF) que el usuario envía al bot, descargar el archivo desde los servidores de Telegram, y disparar el procesamiento a través del pipeline existente. Este spec cubre el camino desde la recepción del mensaje hasta la llamada a `Pipeline.process()` y el guardado del resultado en el store.

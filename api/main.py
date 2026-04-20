@@ -26,11 +26,13 @@ _telegram_bot = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _telegram_bot
+    app.state.telegram_bot = None
     if os.getenv("TELEGRAM_BOT_TOKEN"):
         try:
             from src.telegram_bot.bot import TelegramBot
             _telegram_bot = TelegramBot()
             await _telegram_bot.initialize(app)
+            app.state.telegram_bot = _telegram_bot
         except Exception:
             logger.warning("Bot de Telegram no pudo iniciarse:\n" + traceback.format_exc())
     else:
@@ -59,6 +61,9 @@ app.add_middleware(
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 if os.path.exists(FRONTEND_DIR):
     app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+
+from api.routers.telegram import router as telegram_router
+app.include_router(telegram_router)
 
 
 # ---------------------------------------------------------------------------
