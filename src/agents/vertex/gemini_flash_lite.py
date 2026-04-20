@@ -50,7 +50,7 @@ class GeminiFlashLiteAgent(BaseAgent):
             )
 
         self._location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
-        model_id = os.getenv("GEMINI_FLASH_LITE_MODEL", "gemini-2.5-flash")
+        model_id = os.getenv("GEMINI_FLASH_LITE_MODEL", "gemini-2.0-flash-lite")
 
         vertexai.init(project=project, location=self._location)
         self._model = GenerativeModel(model_id)

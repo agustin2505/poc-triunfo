@@ -182,9 +182,13 @@ async def on_result(chat_id: int, result, bot) -> None:
     routing = result.routing
     msg = format_result_message(result)
 
-    high_confidence_routings = (RoutingDecision.AUTO_APPROVE, RoutingDecision.HITL_STANDARD)
+    actionable_routings = (
+        RoutingDecision.AUTO_APPROVE,
+        RoutingDecision.HITL_STANDARD,
+        RoutingDecision.HITL_PRIORITY,
+    )
 
-    if routing in high_confidence_routings:
+    if routing in actionable_routings:
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("Aprobar ✓", callback_data=f"aprobar:{result.document_id}"),
@@ -213,10 +217,6 @@ async def on_result(chat_id: int, result, bot) -> None:
                 logger.error(f"Error enviando PDF:\n{traceback.format_exc()}")
         # fallback sin PDF
         await bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML", reply_markup=keyboard)
-
-    elif routing == RoutingDecision.HITL_PRIORITY:
-        low_msg = format_low_confidence_message(result)
-        await bot.send_message(chat_id=chat_id, text=low_msg, parse_mode="HTML")
 
     else:
         # AUTO_REJECT
