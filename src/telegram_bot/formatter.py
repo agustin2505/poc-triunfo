@@ -29,6 +29,22 @@ def _truncate(text: str, limit: int = 4096) -> str:
     return text
 
 
+def _fmt_taxes(result) -> str:
+    f = result.extracted_fields.get("impuestos_tasas")
+    if not f or not f.value:
+        return ""
+    items = f.value
+    if not isinstance(items, list) or not items:
+        return ""
+    lines = ["", "<b>Impuestos y tasas:</b>"]
+    for item in items:
+        if isinstance(item, dict):
+            desc = item.get("descripcion", "—")
+            monto = item.get("monto")
+            lines.append(f"  • {desc}: {_fmt_amount(monto)}")
+    return "\n".join(lines)
+
+
 def format_result_message(result) -> str:
     confianza_pct = f"{result.confidence_score * 100:.0f}%"
     routing = result.routing.value if result.routing else "—"
@@ -42,12 +58,21 @@ def format_result_message(result) -> str:
 
     lines = [
         header,
-        f"<b>Proveedor:</b>  {result.provider or 'no detectado'}",
+        f"<b>Proveedor:</b>  {_fmt_field(result, 'provider_name')}",
+        f"<b>A nombre de:</b> {_fmt_field(result, 'customer_name')}",
+        f"<b>NIC:</b>        {_fmt_field(result, 'nic')}",
         f"<b>Número:</b>     {_fmt_field(result, 'reference_number')}",
         f"<b>Fecha:</b>      {_fmt_field(result, 'issue_date')}",
-        f"<b>Subtotal:</b>   {_fmt_field(result, 'subtotal', is_amount=True)}",
+        f"<b>Subtotal:</b>   {_fmt_field(result, 'net_amount', is_amount=True)}",
         f"<b>IVA:</b>        {_fmt_field(result, 'tax_amount', is_amount=True)}",
         f"<b>Total:</b>      {_fmt_field(result, 'total_amount', is_amount=True)}",
+    ]
+
+    taxes_block = _fmt_taxes(result)
+    if taxes_block:
+        lines.append(taxes_block)
+
+    lines += [
         "",
         f"<b>Confianza:</b> {confianza_pct} ({routing})",
     ]
@@ -57,6 +82,7 @@ def format_result_message(result) -> str:
             (name, field)
             for name, field in result.extracted_fields.items()
             if field.confidence < 0.70 and field.value is not None
+            and name != "impuestos_tasas"
         ]
         if low_fields:
             lines.append("\n<i>Campos con baja confianza — revisá antes de aprobar:</i>")

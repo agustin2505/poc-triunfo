@@ -25,7 +25,7 @@ class GeminiFlashLiteAgent(BaseAgent):
     """
 
     agent_id = "gemini-flash-lite"
-    timeout_ms = 20000
+    timeout_ms = 30000
 
     def __init__(self) -> None:
         self._model = None

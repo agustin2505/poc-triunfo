@@ -53,7 +53,7 @@ class GeminiProAgent(BaseAgent):
             )
 
         self._location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
-        model_id = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro-preview-05-06")
+        model_id = os.getenv("GEMINI_PRO_MODEL", "gemini-2.0-pro-exp")
 
         vertexai.init(project=project, location=self._location)
         self._model = GenerativeModel(model_id)
