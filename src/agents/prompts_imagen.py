@@ -28,6 +28,9 @@ REGLAS CRITICAS:
 6. Renglones: extraer TODOS los items del cuerpo de la factura, uno por uno.
 7. Lee sellos, firmas, codigos de barras y QR si son visibles (texto, no decodificar).
 8. NO clasificar el proveedor. NO calcular totales. NO completar campos faltantes.
+9. NIC (Numero de Identificacion del Cliente): campo prominente en facturas de servicios publicos (luz, gas, agua). Extraer en metadatos.nic.
+10. impuestos_tasas: extraer TODOS los impuestos, tasas y contribuciones como lista. Cada item tiene descripcion (nombre del tributo) y monto. Incluir FNEE, contribuciones provinciales, municipales, tasas municipales, etc.
+11. receptor.razon_social: nombre completo del cliente/titular del servicio a quien esta dirigida la factura.
 
 Responde UNICAMENTE con JSON valido, sin markdown, sin explicaciones."""
 
@@ -81,6 +84,7 @@ SCHEMA_FASE1: Dict[str, Any] = {
         "cae": None,
         "vencimiento_cae": None,
         "codigo_barras_qr": None,
+        "nic": None,
     },
     "emisor": {
         "razon_social": None,
@@ -106,6 +110,12 @@ SCHEMA_FASE1: Dict[str, Any] = {
             "subtotal_sin_iva": None,
             "alicuota_iva": None,
             "monto_iva": None,
+        }
+    ],
+    "impuestos_tasas": [
+        {
+            "descripcion": None,
+            "monto": None,
         }
     ],
     "totales": {
@@ -256,12 +266,15 @@ def map_fase1_to_agent_fields(fase1: Dict) -> Dict[str, FieldValue]:
     """Mapea el JSON de Fase 1 a los campos estándar del AgentOutput (Spec-03).
 
     Los campos estándar son los que espera el Conciliador:
-    provider_name, issue_date, due_date, total_amount, reference_number,
-    currency, supplier_cuit, invoice_type, net_amount, tax_amount, cae, cae_due_date.
+    provider_name, customer_name, nic, issue_date, due_date, total_amount,
+    reference_number, currency, supplier_cuit, invoice_type, net_amount,
+    tax_amount, impuestos_tasas, cae, cae_due_date.
     """
     meta = fase1.get("metadatos") or {}
     emisor = fase1.get("emisor") or {}
+    receptor = fase1.get("receptor") or {}
     totales = fase1.get("totales") or {}
+    impuestos_raw = fase1.get("impuestos_tasas") or []
 
     def fv(value: Any, conf: float = 0.90) -> FieldValue:
         if value is None or value == "":
@@ -294,8 +307,18 @@ def map_fase1_to_agent_fields(fase1: Dict) -> Dict[str, FieldValue]:
     iva_sum = sum(v for v in iva_vals if v is not None)
     tax_amount: Optional[float] = iva_sum if iva_sum > 0 else None
 
+    # Impuestos, tasas y contribuciones como lista filtrada
+    impuestos_lista = [
+        item for item in impuestos_raw
+        if isinstance(item, dict)
+        and item.get("descripcion") is not None
+        and item.get("monto") is not None
+    ]
+
     return {
         "provider_name": fv(emisor.get("razon_social"), 0.92),
+        "customer_name": fv(receptor.get("razon_social"), 0.90),
+        "nic": fv(meta.get("nic"), 0.93),
         "issue_date": fv(meta.get("fecha_emision"), 0.93),
         "due_date": fv(meta.get("fecha_vencimiento"), 0.88),
         "total_amount": fv(totales.get("total"), 0.94),
@@ -305,6 +328,7 @@ def map_fase1_to_agent_fields(fase1: Dict) -> Dict[str, FieldValue]:
         "invoice_type": fv(invoice_type, 0.88),
         "net_amount": fv(totales.get("subtotal_gravado"), 0.89),
         "tax_amount": fv(tax_amount, 0.89),
+        "impuestos_tasas": fv(impuestos_lista if impuestos_lista else None, 0.88),
         "cae": fv(meta.get("cae"), 0.86),
         "cae_due_date": fv(meta.get("vencimiento_cae"), 0.85),
     }
