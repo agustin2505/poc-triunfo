@@ -33,6 +33,10 @@ _DEFAULT_WEIGHTS = {
     "gemini-flash-lite": 0.10,
 }
 
+# Agentes de alta prioridad: el early exit no se dispara hasta que alguno de
+# estos responda (éxito o fallo). Evita salir solo con modelos de bajo peso.
+_PRIORITY_AGENTS = {"claude-vision"}
+
 
 @dataclass
 class OrchestratorResult:
@@ -155,9 +159,13 @@ class ImageOrchestrator:
                     )
                     durations[aid] = 0
 
-                # Early exit: si ya tenemos suficientes agentes OK, no esperamos más
+                # Early exit: esperar a agentes prioritarios antes de salir.
+                # Evita devolver resultados basados solo en modelos de bajo peso
+                # mientras un agente de alta prioridad (ej: claude-vision) aún trabaja.
                 n_ok = sum(1 for o in agent_outputs.values() if o.status == AgentStatus.SUCCESS)
-                if n_ok >= min_ok and len(agent_outputs) >= min_ok:
+                active_priority = _PRIORITY_AGENTS & set(futures.values())
+                priority_done = active_priority.issubset(agent_outputs.keys())
+                if priority_done and n_ok >= min_ok:
                     _logger.info(
                         f"[{document_id[:8]}] Early exit: {n_ok} agente(s) OK "
                         f"({len(agent_outputs)}/{len(self._agents)} respondidos)"

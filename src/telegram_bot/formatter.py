@@ -29,6 +29,14 @@ def _truncate(text: str, limit: int = 4096) -> str:
     return text
 
 
+_IVA_KEYWORDS = ("i.v.a", "iva")
+
+
+def _is_iva_item(desc: str) -> bool:
+    lower = desc.lower()
+    return any(lower.startswith(kw) for kw in _IVA_KEYWORDS)
+
+
 def _fmt_taxes(result) -> str:
     f = result.extracted_fields.get("impuestos_tasas")
     if not f or not f.value:
@@ -36,12 +44,21 @@ def _fmt_taxes(result) -> str:
     items = f.value
     if not isinstance(items, list) or not items:
         return ""
+    # Si hay IVA calculado como campo propio, omitirlo del bloque para no duplicar
+    has_tax_field = (
+        result.extracted_fields.get("tax_amount") is not None
+        and result.extracted_fields["tax_amount"].value is not None
+    )
     lines = ["", "<b>Impuestos y tasas:</b>"]
     for item in items:
         if isinstance(item, dict):
-            desc = item.get("descripcion", "—")
+            desc = item.get("descripcion") or "—"
+            if has_tax_field and _is_iva_item(desc):
+                continue
             monto = item.get("monto")
             lines.append(f"  • {desc}: {_fmt_amount(monto)}")
+    if len(lines) == 2:
+        return ""
     return "\n".join(lines)
 
 
@@ -56,16 +73,22 @@ def format_result_message(result) -> str:
         else "<b>Factura procesada correctamente</b>\n"
     )
 
+    customer_address = _fmt_field(result, "customer_address")
+
     lines = [
         header,
-        f"<b>Proveedor:</b>  {_fmt_field(result, 'provider_name')}",
+        f"<b>Proveedor:</b>   {_fmt_field(result, 'provider_name')}",
         f"<b>A nombre de:</b> {_fmt_field(result, 'customer_name')}",
-        f"<b>NIC:</b>        {_fmt_field(result, 'nic')}",
-        f"<b>Número:</b>     {_fmt_field(result, 'reference_number')}",
-        f"<b>Fecha:</b>      {_fmt_field(result, 'issue_date')}",
-        f"<b>Subtotal:</b>   {_fmt_field(result, 'net_amount', is_amount=True)}",
-        f"<b>IVA:</b>        {_fmt_field(result, 'tax_amount', is_amount=True)}",
-        f"<b>Total:</b>      {_fmt_field(result, 'total_amount', is_amount=True)}",
+    ]
+    if customer_address != "no detectado":
+        lines.append(f"<b>Dirección:</b>   {customer_address}")
+    lines += [
+        f"<b>NIC:</b>         {_fmt_field(result, 'nic')}",
+        f"<b>Número:</b>      {_fmt_field(result, 'reference_number')}",
+        f"<b>Fecha:</b>       {_fmt_field(result, 'issue_date')}",
+        f"<b>Subtotal:</b>    {_fmt_field(result, 'net_amount', is_amount=True)}",
+        f"<b>IVA:</b>         {_fmt_field(result, 'tax_amount', is_amount=True)}",
+        f"<b>Total:</b>       {_fmt_field(result, 'total_amount', is_amount=True)}",
     ]
 
     taxes_block = _fmt_taxes(result)

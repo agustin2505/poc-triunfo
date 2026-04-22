@@ -30,7 +30,13 @@ REGLAS CRITICAS:
 8. NO clasificar el proveedor. NO calcular totales. NO completar campos faltantes.
 9. NIC (Numero de Identificacion del Cliente): campo prominente en facturas de servicios publicos (luz, gas, agua). Extraer en metadatos.nic.
 10. impuestos_tasas: extraer TODOS los impuestos, tasas y contribuciones como lista. Cada item tiene descripcion (nombre del tributo) y monto. Incluir FNEE, contribuciones provinciales, municipales, tasas municipales, etc.
-11. receptor.razon_social: nombre completo del cliente/titular del servicio a quien esta dirigida la factura.
+11. EMISOR vs RECEPTOR — regla fundamental:
+    - emisor: la empresa/entidad que EMITE la factura. Su nombre, CUIT y domicilio fiscal aparecen en el encabezado o membrete (ej: la distribuidora electrica, la empresa de gas, el proveedor comercial). Es SIEMPRE una empresa o entidad, nunca una persona fisica titular del servicio.
+    - receptor: la persona o empresa que RECIBE la factura. En facturas de servicios publicos aparece como "Titular", "Cliente", "Datos del cliente" o "A nombre de". Su nombre puede ser una persona fisica (ej: PEREZ VICTORIA).
+    - razon_social es siempre un NOMBRE (de persona o empresa). NUNCA una direccion ni un numero de calle.
+    - domicilio es siempre una DIRECCION (calle, numero, ciudad). NUNCA un nombre de persona.
+    - Si ves un campo con formato "APELLIDO NOMBRE" o "NOMBRE APELLIDO" -> es razon_social.
+    - Si ves un campo con formato "CALLE NUMERO CIUDAD" -> es domicilio.
 
 Responde UNICAMENTE con JSON valido, sin markdown, sin explicaciones."""
 
@@ -318,6 +324,7 @@ def map_fase1_to_agent_fields(fase1: Dict) -> Dict[str, FieldValue]:
     return {
         "provider_name": fv(emisor.get("razon_social"), 0.92),
         "customer_name": fv(receptor.get("razon_social"), 0.90),
+        "customer_address": fv(receptor.get("domicilio"), 0.88),
         "nic": fv(meta.get("nic"), 0.93),
         "issue_date": fv(meta.get("fecha_emision"), 0.93),
         "due_date": fv(meta.get("fecha_vencimiento"), 0.88),
