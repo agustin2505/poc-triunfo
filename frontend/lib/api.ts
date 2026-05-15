@@ -9,7 +9,7 @@ import type {
   StageStatus,
 } from "./mock-data"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_URL = '/api'
 
 // ---------------------------------------------------------------------------
 // Tipos del backend
@@ -178,18 +178,6 @@ export function adaptListItem(item: BackendDocumentListItem): ProcessedDocument 
 // Mapeo de valores del formulario
 // ---------------------------------------------------------------------------
 
-const QUALITY_MAP: Record<string, string> = {
-  buena: "good",
-  media: "medium",
-  mala: "poor",
-}
-
-const PROVIDER_MAP: Record<string, string> = {
-  edenor: "edenor-001",
-  metrogas: "metrogas-001",
-  interna: "factura-interna-001",
-}
-
 // ---------------------------------------------------------------------------
 // Funciones API
 // ---------------------------------------------------------------------------
@@ -201,27 +189,45 @@ export async function uploadDocument(
   const formData = new FormData()
   formData.append("file", file)
 
-  const mappedProvider = options.providerHint ? PROVIDER_MAP[options.providerHint] : undefined
-  if (mappedProvider) formData.append("provider_hint", mappedProvider)
+  // providerHint llega ya mapeado desde page.tsx (ej: "edenor-001")
+  if (options.providerHint) formData.append("provider_hint", options.providerHint)
 
-  formData.append("quality_hint", QUALITY_MAP[options.qualityHint || "buena"] || "good")
+  // qualityHint llega como "good"/"medium"/"poor" directamente
+  const validQualities = ["good", "medium", "poor"]
+  const quality = validQualities.includes(options.qualityHint ?? "") ? options.qualityHint! : "good"
+  formData.append("quality_hint", quality)
 
-  const res = await fetch(`${API_URL}/upload`, { method: "POST", body: formData })
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}/upload`, { method: "POST", body: formData })
+  } catch {
+    throw new Error(`No se pudo conectar al backend (${API_URL}). ¿Está corriendo python run.py?`)
+  }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Error desconocido" }))
+    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
     throw new Error(err.detail || `HTTP ${res.status}`)
   }
   return res.json()
 }
 
 export async function getDocument(id: string): Promise<BackendDocumentResult> {
-  const res = await fetch(`${API_URL}/document/${id}`)
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}/document/${id}`)
+  } catch {
+    throw new Error(`No se pudo conectar al backend. ¿Está corriendo python run.py?`)
+  }
   if (!res.ok) throw new Error(`Documento no encontrado: ${id}`)
   return res.json()
 }
 
 export async function listDocuments(limit = 100): Promise<BackendDocumentList> {
-  const res = await fetch(`${API_URL}/documents?limit=${limit}`)
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}/documents?limit=${limit}`)
+  } catch {
+    throw new Error(`No se pudo conectar al backend. ¿Está corriendo python run.py?`)
+  }
   if (!res.ok) throw new Error("Error al obtener documentos")
   return res.json()
 }

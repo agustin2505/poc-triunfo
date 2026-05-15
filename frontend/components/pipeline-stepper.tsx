@@ -1,140 +1,106 @@
 "use client"
 
-import { Check, X, Loader2, Circle } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Check, AlertTriangle, Loader2 } from "lucide-react"
+import { TT } from "@/lib/theme"
 import type { PipelineStage, StageStatus } from "@/lib/mock-data"
+
+const STAGE_LABELS: Record<string, string> = {
+  INGESTED:   "Ingresado",
+  CLASSIFIED: "Clasificación",
+  PROCESSING: "Procesando",
+  EXTRACTED:  "Extracción",
+  VALIDATED:  "Validación",
+  ROUTED:     "Routing",
+}
 
 interface PipelineStepperProps {
   stages: PipelineStage[]
-  provider?: string
-  category?: string
+  currentIdx?: number
+  animated?: boolean
 }
 
-const stageLabels: Record<string, string> = {
-  INGESTED: "Ingresado",
-  CLASSIFIED: "Clasificado",
-  PROCESSING: "Procesando",
-  EXTRACTED: "Extraído",
-  VALIDATED: "Validado",
-  ROUTED: "Enrutado"
+function DotContent({ status, animated, isCurrent, index }: {
+  status: StageStatus
+  animated?: boolean
+  isCurrent?: boolean
+  index: number
+}) {
+  if (animated && isCurrent) {
+    return (
+      <span style={{
+        width: 8, height: 8, borderRadius: 999, background: TT.primary,
+        animation: 'pulse 1s ease infinite',
+      }} />
+    )
+  }
+  if (status === 'SUCCESS') return <Check size={13} />
+  if (status === 'FAILED') return <AlertTriangle size={13} />
+  if (status === 'PROCESSING') return <Loader2 size={13} className="animate-spin" />
+  return <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace' }}>{index + 1}</span>
 }
 
-export function PipelineStepper({ stages, provider, category }: PipelineStepperProps) {
-  const getStatusIcon = (status: StageStatus) => {
-    switch (status) {
-      case "SUCCESS":
-        return <Check className="h-4 w-4" />
-      case "FAILED":
-        return <X className="h-4 w-4" />
-      case "PROCESSING":
-        return <Loader2 className="h-4 w-4 animate-spin" />
-      case "SKIPPED":
-        return <Circle className="h-4 w-4" />
-      default:
-        return <Circle className="h-4 w-4" />
-    }
-  }
-
-  const getStatusColor = (status: StageStatus) => {
-    switch (status) {
-      case "SUCCESS":
-        return "bg-emerald-500 text-white"
-      case "FAILED":
-        return "bg-red-500 text-white"
-      case "PROCESSING":
-        return "bg-indigo-500 text-white"
-      case "SKIPPED":
-        return "bg-slate-300 text-slate-600"
-      default:
-        return "bg-slate-200 text-slate-400"
-    }
-  }
-
-  const getLineColor = (status: StageStatus) => {
-    switch (status) {
-      case "SUCCESS":
-        return "bg-emerald-500"
-      case "FAILED":
-        return "bg-red-500"
-      default:
-        return "bg-slate-200"
-    }
-  }
-
+export function PipelineStepper({ stages, currentIdx, animated }: PipelineStepperProps) {
   return (
-    <div className="space-y-6">
-      <div className="space-y-0">
-        {stages.map((stage, index) => (
-          <div key={stage.name} className="relative">
-            {/* Connector line */}
-            {index < stages.length - 1 && (
-              <div 
-                className={cn(
-                  "absolute left-[15px] top-[32px] h-8 w-0.5",
-                  getLineColor(stage.status)
-                )} 
-              />
-            )}
-            
-            <div className="flex items-center gap-4 py-2">
-              {/* Status icon */}
-              <div className={cn(
-                "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full",
-                getStatusColor(stage.status)
-              )}>
-                {getStatusIcon(stage.status)}
-              </div>
-              
-              {/* Stage info */}
-              <div className="flex flex-1 items-center justify-between">
-                <span className={cn(
-                  "font-medium",
-                  stage.status === "PENDING" ? "text-slate-400" : "text-slate-700"
-                )}>
-                  {stageLabels[stage.name] || stage.name}
-                </span>
-                
-                {stage.status === "SUCCESS" && stage.duration_ms > 0 && (
-                  <span className="text-sm text-slate-500">
-                    {stage.duration_ms}ms
-                  </span>
-                )}
-                {stage.status === "PROCESSING" && (
-                  <span className="text-sm text-indigo-600">
-                    Procesando...
-                  </span>
-                )}
-                {stage.status === "SKIPPED" && (
-                  <span className="text-sm text-slate-400">
-                    Saltado
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+    <>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, overflowX: 'auto' }}>
+        {stages.map((s, i) => {
+          const isCurrent = i === currentIdx
+          const isDone = currentIdx == null
+            ? s.status === 'SUCCESS' || s.status === 'FAILED'
+            : i < (currentIdx ?? 0)
+          const isWarn = s.status === 'FAILED' && !animated
+          const isPending = currentIdx != null && i > (currentIdx ?? 0)
 
-      {/* Provider and category info */}
-      {provider && (
-        <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <div>
-            <p className="text-sm text-slate-500">Proveedor detectado</p>
-            <p className="font-semibold text-slate-900">{provider}</p>
-          </div>
-          {category && (
-            <>
-              <div className="h-8 w-px bg-slate-200" />
-              <div>
-                <p className="text-sm text-slate-500">Categoría</p>
-                <span className="inline-flex items-center rounded-full bg-indigo-100 px-2.5 py-0.5 text-sm font-medium text-indigo-800">
-                  {category}
-                </span>
+          const dotColor = isWarn
+            ? TT.hitl.solid
+            : (isDone || (currentIdx != null && isCurrent)) ? TT.primary : TT.subtle
+          const dotBg = isWarn ? TT.hitl.bg : isDone ? TT.primarySoft : '#F3F4F6'
+
+          const lineColor = isDone ? TT.primary : TT.border
+          const timeLabel = animated && isCurrent
+            ? 'procesando…'
+            : isPending
+            ? 'pendiente'
+            : s.duration_ms > 0
+            ? `${s.duration_ms} ms`
+            : '—'
+
+          return (
+            <div key={s.name} style={{ display: 'flex', alignItems: 'stretch', gap: 0, minWidth: 0 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0', minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{
+                    width: 24, height: 24, borderRadius: 999,
+                    background: dotBg, color: dotColor,
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}>
+                    <DotContent status={s.status} animated={animated} isCurrent={isCurrent} index={i} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 600, color: isPending ? TT.muted : TT.fg, whiteSpace: 'nowrap',
+                    }}>
+                      {STAGE_LABELS[s.name] ?? s.name}
+                    </div>
+                    <div style={{
+                      fontSize: 11, color: TT.muted, fontFamily: 'monospace', whiteSpace: 'nowrap',
+                    }}>
+                      {timeLabel}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
+              {i < stages.length - 1 && (
+                <div style={{
+                  flex: 1, alignSelf: 'center', minWidth: 24,
+                  height: 1, background: lineColor, margin: '0 12px',
+                }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <style>{`@keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1 } 50% { transform: scale(.6); opacity: .6 } }`}</style>
+    </>
   )
 }

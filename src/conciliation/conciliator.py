@@ -303,11 +303,11 @@ class Conciliator:
         score = sum(critical_confs) / len(critical_confs)
         score = round(score, 3)
 
-        if score >= 0.88:
-            return score, RoutingDecision.AUTO_APPROVE, f"Confidence {score:.2f} ≥ 0.88"
-        elif score >= 0.70:
-            return score, RoutingDecision.HITL_STANDARD, f"Confidence {score:.2f} en rango 0.70-0.88"
+        if score >= 0.82:
+            return score, RoutingDecision.AUTO_APPROVE, f"Confidence {score:.2f} ≥ 0.82"
+        elif score >= 0.65:
+            return score, RoutingDecision.HITL_STANDARD, f"Confidence {score:.2f} en rango 0.65-0.82"
         elif score >= 0.40:
-            return score, RoutingDecision.HITL_PRIORITY, f"Confidence {score:.2f} < 0.70"
+            return score, RoutingDecision.HITL_PRIORITY, f"Confidence {score:.2f} < 0.65"
         else:
             return score, RoutingDecision.AUTO_REJECT, f"Confidence {score:.2f} < 0.40"

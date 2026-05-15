@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """Arranca el servidor Triunfo MVP.
 
@@ -14,13 +15,13 @@ load_dotenv()
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Triunfo MVP Server")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=8090)
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
 
     print(f"\n  Triunfo MVP arrancando en http://localhost:{args.port}")
-    print(f"  UI:   http://localhost:{args.port}/app")
-    print(f"  Docs: http://localhost:{args.port}/docs\n")
+    print(f"  Docs: http://localhost:{args.port}/docs")
+    print(f"  Frontend: http://localhost:3000\n")
 
     uvicorn.run(
         "api.main:app",

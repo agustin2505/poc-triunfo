@@ -288,10 +288,10 @@ class Pipeline:
                 routing_reason = f"Validación fallida: {final_val.errors[0]}"
                 confidence_score -= 0.10
         elif final_val.warnings:
-            if routing == RoutingDecision.AUTO_APPROVE and confidence_score < 0.92:
+            if routing == RoutingDecision.AUTO_APPROVE and confidence_score < 0.86:
                 routing = RoutingDecision.HITL_STANDARD
                 routing_reason = f"Warnings presentes: {len(final_val.warnings)}"
-            confidence_score -= 0.05
+            confidence_score -= 0.02
 
         result.confidence_score = round(max(0.0, confidence_score), 3)
         result.routing = routing

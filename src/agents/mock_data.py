@@ -16,7 +16,7 @@ def _jitter(value: float, pct: float = 0.02) -> float:
     return round(value * (1 + random.uniform(-pct, pct)), 2)
 
 
-def _confidence(base: float, spread: float = 0.08) -> float:
+def _confidence(base: float, spread: float = 0.04) -> float:
     return round(min(1.0, max(0.0, base + random.uniform(-spread, spread))), 3)
 
 
@@ -32,7 +32,7 @@ def edenor_fields(quality: str = "good") -> Dict[str, Tuple[Any, float]]:
     total = round(base_charge + consumption_charge + tax, 2)
     ref = f"0001-{random.randint(10000000, 99999999)}"
 
-    conf_base = {"good": 0.93, "medium": 0.78, "poor": 0.61}[quality]
+    conf_base = {"good": 0.96, "medium": 0.82, "poor": 0.65}[quality]
 
     return {
         "provider_name": ("Edenor", _confidence(conf_base + 0.03)),
@@ -62,7 +62,7 @@ def metrogas_fields(quality: str = "good") -> Dict[str, Tuple[Any, float]]:
     total = round(base_charge + consumption_charge + tax, 2)
     ref = f"0004-{random.randint(10000000, 99999999)}"
 
-    conf_base = {"good": 0.92, "medium": 0.76, "poor": 0.59}[quality]
+    conf_base = {"good": 0.95, "medium": 0.81, "poor": 0.63}[quality]
 
     return {
         "provider_name": ("Metrogas", _confidence(conf_base + 0.03)),

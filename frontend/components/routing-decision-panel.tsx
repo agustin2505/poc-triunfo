@@ -1,106 +1,110 @@
 "use client"
 
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { Send, Download, ArrowLeft, Loader2 } from "lucide-react"
+import { TT, ROUTING_META } from "@/lib/theme"
 import { RoutingBadge } from "@/components/routing-badge"
-import type { RoutingDecision } from "@/lib/mock-data"
-import { Send, UserCheck, RotateCcw, Eye, XCircle, FileCheck, Loader2 } from "lucide-react"
+import type { RoutingDecision, ProcessedDocument } from "@/lib/mock-data"
 
 interface RoutingDecisionPanelProps {
-  routing: RoutingDecision
-  reason?: string
+  doc: ProcessedDocument
   onApprove?: () => void
+  onBack?: () => void
   approving?: boolean
   approved?: boolean
 }
 
-const routingReasons: Record<RoutingDecision, string> = {
-  AUTO_APPROVE: "Documento procesado con alta confianza. Todos los campos críticos validados correctamente.",
-  HITL_STANDARD: "Se requiere revisión manual debido a confianza media en algunos campos.",
-  HITL_PRIORITY: "Revisión prioritaria requerida. Confianza baja en campos críticos.",
-  AUTO_REJECT: "Documento rechazado automáticamente debido a errores críticos o campos ilegibles.",
-}
+export function RoutingDecisionPanel({ doc, onApprove, onBack, approving, approved }: RoutingDecisionPanelProps) {
+  const meta = ROUTING_META[doc.routing] ?? ROUTING_META.AUTO_REJECT
+  const colors = TT[meta.tone]
 
-const routingColors: Record<RoutingDecision, { bg: string; border: string }> = {
-  AUTO_APPROVE: { bg: "bg-emerald-50", border: "border-emerald-200" },
-  HITL_STANDARD: { bg: "bg-yellow-50", border: "border-yellow-200" },
-  HITL_PRIORITY: { bg: "bg-orange-50", border: "border-orange-200" },
-  AUTO_REJECT: { bg: "bg-red-50", border: "border-red-200" },
-}
+  const fieldCount = Object.keys(doc.extracted_fields).length
+  const lowConfCount = Object.values(doc.extracted_fields).filter(f => f.confidence < 0.88).length
+  const errorCount = doc.validation.errors.length
+  const totalMs = doc.stages.reduce((s, p) => s + p.duration_ms, 0)
 
-export function RoutingDecisionPanel({ routing, reason, onApprove, approving, approved }: RoutingDecisionPanelProps) {
-  const colors = routingColors[routing]
-  const displayReason = reason || routingReasons[routing]
+  const handleJsonDownload = () => {
+    const payload = {
+      document_id: doc.document_id,
+      provider: doc.provider,
+      routing: doc.routing,
+      score: doc.confidence_score,
+      fields: Object.fromEntries(
+        Object.entries(doc.extracted_fields).map(([k, v]) => [k, { value: v.value, confidence: v.confidence, source: v.source }])
+      ),
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = Object.assign(document.createElement('a'), { href: url, download: `${doc.document_id}.json` })
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-        <h3 className="font-semibold text-slate-900">Decisión de Enrutamiento</h3>
-      </div>
-
-      <div className={cn("p-6", colors.bg)}>
-        <div className="text-center mb-6">
-          <RoutingBadge routing={routing} size="lg" />
-          <p className="mt-4 text-sm text-slate-600 max-w-md mx-auto">
-            {displayReason}
-          </p>
+    <div style={{
+      background: TT.surface, border: `1px solid ${TT.border}`,
+      borderLeft: `4px solid ${colors.solid}`, borderRadius: 12, padding: 24,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 360px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <RoutingBadge routing={doc.routing as RoutingDecision} size="lg" />
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ fontSize: 12, color: TT.muted, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                Score
+              </span>
+              <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: colors.fg, fontVariantNumeric: 'tabular-nums' }}>
+                {doc.confidence_score.toFixed(2)}
+              </span>
+            </div>
+          </div>
+          <div style={{ fontSize: 15, color: TT.fg, lineHeight: 1.55 }}>{meta.desc}</div>
+          <div style={{ marginTop: 12, display: 'flex', gap: 16, fontSize: 12, color: TT.muted }}>
+            <span><strong style={{ color: TT.fg, fontWeight: 600 }}>{lowConfCount}</strong> campos &lt; 0.88</span>
+            <span><strong style={{ color: TT.fg, fontWeight: 600 }}>{errorCount}</strong> con error</span>
+            {totalMs > 0 && <span><strong style={{ color: TT.fg, fontWeight: 600 }}>{(totalMs / 1000).toFixed(2)} s</strong> pipeline</span>}
+          </div>
         </div>
 
-        {/* Action buttons based on routing */}
-        <div className="flex justify-center gap-3">
-          {routing === "AUTO_APPROVE" && (
-            <>
-              <Button
-                className="bg-indigo-600 hover:bg-indigo-700"
-                onClick={onApprove}
-                disabled={approving || approved}
-              >
-                {approving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="mr-2 h-4 w-4" />
-                )}
-                {approved ? "Enviado a SAP" : "Enviar a SAP"}
-              </Button>
-              <Button variant="outline" disabled={approving || approved}>
-                <UserCheck className="mr-2 h-4 w-4" />
-                Solicitar revisión manual
-              </Button>
-            </>
-          )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'stretch', minWidth: 200 }}>
+          <button
+            onClick={onApprove}
+            disabled={approving || approved}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              height: 38, padding: '0 14px', fontSize: 14, fontWeight: 500, borderRadius: 8,
+              background: approved ? TT.approve.bg : TT.approve.solid, color: approved ? TT.approve.fg : '#fff',
+              border: 'none', cursor: approving || approved ? 'not-allowed' : 'pointer',
+              opacity: approving ? 0.7 : 1, transition: 'all 150ms ease',
+            }}
+          >
+            {approving ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+            {approved ? 'Enviado a SAP' : 'Aprobar y enviar a SAP'}
+          </button>
 
-          {(routing === "HITL_STANDARD" || routing === "HITL_PRIORITY") && (
-            <>
-              <Button
-                className="bg-emerald-600 hover:bg-emerald-700"
-                onClick={onApprove}
-                disabled={approving || approved}
-              >
-                {approving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileCheck className="mr-2 h-4 w-4" />
-                )}
-                {approved ? "Enviado a SAP" : "Aprobar y enviar a SAP"}
-              </Button>
-              <Button variant="outline" className="text-red-600 hover:text-red-700 hover:bg-red-50" disabled={approving || approved}>
-                <XCircle className="mr-2 h-4 w-4" />
-                Rechazar documento
-              </Button>
-            </>
-          )}
+          <button
+            onClick={handleJsonDownload}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              height: 38, padding: '0 14px', fontSize: 14, fontWeight: 500, borderRadius: 8,
+              background: TT.surface, color: TT.primary, border: `1px solid ${TT.primary}`,
+              cursor: 'pointer', transition: 'all 150ms ease',
+            }}
+          >
+            <Download size={15} /> Exportar JSON
+          </button>
 
-          {routing === "AUTO_REJECT" && (
-            <>
-              <Button variant="outline">
-                <Eye className="mr-2 h-4 w-4" />
-                Ver motivo
-              </Button>
-              <Button className="bg-indigo-600 hover:bg-indigo-700">
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reenviar para reprocesar
-              </Button>
-            </>
+          {onBack && (
+            <button
+              onClick={onBack}
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                height: 38, padding: '0 14px', fontSize: 14, fontWeight: 500, borderRadius: 8,
+                background: 'transparent', color: TT.fg, border: 'none',
+                cursor: 'pointer', transition: 'all 150ms ease',
+              }}
+            >
+              <ArrowLeft size={15} /> Volver a la cola
+            </button>
           )}
         </div>
       </div>

@@ -58,9 +58,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-if os.path.exists(FRONTEND_DIR):
-    app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+# Middleware de diagnóstico — logea TODA petición HTTP que llega a FastAPI
+from fastapi import Request as _Request
+
+@app.middleware("http")
+async def log_requests(request: _Request, call_next):
+    logger.info(f">>> {request.method} {request.url.path} desde {getattr(request.client, 'host', '?')}")
+    response = await call_next(request)
+    logger.info(f"<<< {response.status_code} {request.url.path}")
+    return response
+
+# StaticFiles mount eliminado — el frontend corre en Next.js (:3000)
 
 from api.routers.telegram import router as telegram_router
 app.include_router(telegram_router)

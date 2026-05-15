@@ -1,39 +1,36 @@
-import { cn } from "@/lib/utils"
+import { TT, ROUTING_META } from "@/lib/theme"
 import type { RoutingDecision } from "@/lib/mock-data"
+import { Check, Eye, AlertTriangle, X } from "lucide-react"
 
 interface RoutingBadgeProps {
   routing: RoutingDecision
   size?: "sm" | "md" | "lg"
 }
 
-const routingLabels: Record<RoutingDecision, string> = {
-  AUTO_APPROVE: "Auto Aprobado",
-  HITL_STANDARD: "Revisión Estándar",
-  HITL_PRIORITY: "Revisión Prioritaria",
-  AUTO_REJECT: "Auto Rechazado",
+const icons: Record<string, React.ElementType> = {
+  AUTO_APPROVE:  Check,
+  HITL_STANDARD: Eye,
+  HITL_PRIORITY: AlertTriangle,
+  AUTO_REJECT:   X,
 }
 
 export function RoutingBadge({ routing, size = "md" }: RoutingBadgeProps) {
-  const colorClasses: Record<RoutingDecision, string> = {
-    AUTO_APPROVE: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    HITL_STANDARD: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    HITL_PRIORITY: "bg-orange-100 text-orange-800 border-orange-200",
-    AUTO_REJECT: "bg-red-100 text-red-800 border-red-200",
-  }
-
-  const sizeClasses = {
-    sm: "px-2 py-0.5 text-xs",
-    md: "px-3 py-1 text-sm",
-    lg: "px-4 py-2 text-lg font-bold",
-  }
+  const meta = ROUTING_META[routing] ?? ROUTING_META.AUTO_REJECT
+  const colors = TT[meta.tone]
+  const Icon = icons[routing] ?? X
+  const iconSize = size === 'lg' ? 18 : 14
+  const padding = size === 'lg' ? '8px 14px' : size === 'sm' ? '2px 8px' : '4px 10px'
+  const fontSize = size === 'lg' ? 14 : size === 'sm' ? 11 : 12
 
   return (
-    <span className={cn(
-      "inline-flex items-center rounded-lg border font-semibold",
-      colorClasses[routing],
-      sizeClasses[size]
-    )}>
-      {routingLabels[routing]}
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      background: colors.bg, color: colors.fg,
+      fontSize, fontWeight: 600, padding, borderRadius: 8,
+      whiteSpace: 'nowrap',
+    }}>
+      <Icon size={iconSize} style={{ flexShrink: 0 }} />
+      {meta.label}
     </span>
   )
 }

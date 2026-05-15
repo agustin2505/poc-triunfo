@@ -1,167 +1,242 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import Link from "next/link"
-import { Clock, AlertTriangle, FileText, Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { RefreshCw, Search, Inbox, FileText, Image as ImageIcon } from "lucide-react"
+import { TT } from "@/lib/theme"
 import { RoutingBadge } from "@/components/routing-badge"
 import { ConfidenceBadge } from "@/components/confidence-badge"
-import { formatDate, type ProcessedDocument } from "@/lib/mock-data"
 import { listDocuments, adaptListItem } from "@/lib/api"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import type { ProcessedDocument } from "@/lib/mock-data"
+
+type TabId = 'todos' | 'HITL_PRIORITY' | 'HITL_STANDARD'
 
 export default function ColaHITLPage() {
-  const [documents, setDocuments] = useState<ProcessedDocument[]>([])
+  const [all, setAll] = useState<ProcessedDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<TabId>('todos')
+  const [search, setSearch] = useState('')
+  const [providerFilter, setProviderFilter] = useState('Todos')
 
-  useEffect(() => {
-    listDocuments(100)
-      .then((data) => {
+  const load = () => {
+    setLoading(true)
+    setError(null)
+    listDocuments(200)
+      .then(data => {
         const hitl = data.documents
           .map(adaptListItem)
-          .filter(
-            (d) => d.routing === "HITL_STANDARD" || d.routing === "HITL_PRIORITY"
-          )
-        setDocuments(hitl)
+          .filter(d => d.routing === 'HITL_STANDARD' || d.routing === 'HITL_PRIORITY')
+        setAll(hitl)
         setLoading(false)
       })
-      .catch((err) => {
-        setError(err.message)
-        setLoading(false)
-      })
-  }, [])
+      .catch(err => { setError(err.message); setLoading(false) })
+  }
 
-  const priorityCount = documents.filter((d) => d.routing === "HITL_PRIORITY").length
-  const standardCount = documents.filter((d) => d.routing === "HITL_STANDARD").length
+  useEffect(() => { load() }, [])
+
+  const providers = useMemo(() => {
+    const set = new Set(all.map(d => d.provider).filter(Boolean))
+    return ['Todos', ...Array.from(set)]
+  }, [all])
+
+  const filtered = useMemo(() => {
+    return all.filter(d => {
+      if (tab !== 'todos' && d.routing !== tab) return false
+      if (providerFilter !== 'Todos' && d.provider !== providerFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        if (!d.filename.toLowerCase().includes(q) && !d.document_id.toLowerCase().includes(q)) return false
+      }
+      return true
+    })
+  }, [all, tab, search, providerFilter])
+
+  const counts = {
+    todos: all.length,
+    HITL_PRIORITY: all.filter(d => d.routing === 'HITL_PRIORITY').length,
+    HITL_STANDARD: all.filter(d => d.routing === 'HITL_STANDARD').length,
+  }
+
+  const tabs: { id: TabId; label: string }[] = [
+    { id: 'todos',         label: 'Todos' },
+    { id: 'HITL_PRIORITY', label: 'Prioritarios' },
+    { id: 'HITL_STANDARD', label: 'Estándar' },
+  ]
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] p-6">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-slate-900">Cola de Revisión Manual</h1>
-          <p className="text-slate-500">Documentos pendientes de revisión humana</p>
+    <div style={{ maxWidth: 1320, margin: '0 auto', padding: '24px 32px 64px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.01em', margin: 0, color: TT.fg }}>Cola HITL</h1>
+          <p style={{ fontSize: 15, color: TT.muted, marginTop: 6, lineHeight: 1.55 }}>
+            Documentos pendientes de revisión humana, ordenados por prioridad.
+          </p>
         </div>
-
-        {/* Stats cards */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="rounded-xl border border-slate-200 bg-white p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-slate-100">
-                <FileText className="h-6 w-6 text-slate-600" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-500">Total en cola</p>
-                <p className="text-2xl font-bold text-slate-900">{documents.length}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-orange-200 bg-orange-50 p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-                <AlertTriangle className="h-6 w-6 text-orange-600" />
-              </div>
-              <div>
-                <p className="text-sm text-orange-700">Prioritarios</p>
-                <p className="text-2xl font-bold text-orange-900">{priorityCount}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-yellow-100">
-                <Clock className="h-6 w-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-yellow-700">Estándar</p>
-                <p className="text-2xl font-bold text-yellow-900">{standardCount}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabla */}
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-          <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-            <h3 className="font-semibold text-slate-900">Documentos Pendientes</h3>
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-16 gap-3 text-slate-500">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span>Cargando cola...</span>
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <p className="text-red-600 text-sm">{error}</p>
-            </div>
-          ) : documents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 mb-4">
-                <FileText className="h-8 w-8 text-emerald-600" />
-              </div>
-              <p className="text-lg font-medium text-slate-900">Cola vacía</p>
-              <p className="text-sm text-slate-500">No hay documentos pendientes de revisión</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Archivo</TableHead>
-                  <TableHead>Proveedor</TableHead>
-                  <TableHead className="text-center">Confidence</TableHead>
-                  <TableHead className="text-center">Estado</TableHead>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead className="text-right">Acción</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {documents.map((doc) => (
-                  <TableRow
-                    key={doc.document_id}
-                    className={cn(
-                      doc.routing === "HITL_PRIORITY" && "bg-orange-50/50"
-                    )}
-                  >
-                    <TableCell className="font-mono text-sm">
-                      {doc.document_id.slice(0, 8)}
-                    </TableCell>
-                    <TableCell className="max-w-[200px] truncate">{doc.filename}</TableCell>
-                    <TableCell>{doc.provider}</TableCell>
-                    <TableCell className="text-center">
-                      <ConfidenceBadge confidence={doc.confidence_score} size="sm" />
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <RoutingBadge routing={doc.routing} size="sm" />
-                    </TableCell>
-                    <TableCell className="text-slate-500">
-                      {formatDate(doc.created_at)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Link href={`/resultado/${doc.document_id}`}>
-                        <Button size="sm" variant="outline">
-                          Revisar
-                        </Button>
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            height: 38, padding: '0 14px', fontSize: 14, fontWeight: 500, borderRadius: 8,
+            background: 'transparent', color: TT.fg, border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+          Actualizar
+        </button>
       </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${TT.border}` }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: '10px 14px', fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: tab === t.id ? TT.primary : TT.muted,
+            borderBottom: tab === t.id ? `2px solid ${TT.primary}` : '2px solid transparent',
+            marginBottom: -1, display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            {t.label}
+            <span style={{
+              background: tab === t.id ? TT.primarySoft : '#F3F4F6',
+              color: tab === t.id ? TT.primaryHover : TT.muted,
+              fontSize: 11, fontWeight: 600, padding: '1px 6px', borderRadius: 999,
+            }}>
+              {counts[t.id]}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{
+        background: TT.surface, border: `1px solid ${TT.border}`, borderTop: 'none',
+        padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: TT.subtle, pointerEvents: 'none' }}>
+            <Search size={14} />
+          </span>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar por nombre o doc_id…"
+            style={{
+              height: 34, padding: '0 12px 0 32px', fontSize: 13, width: 280, fontFamily: 'inherit',
+              background: TT.surface, border: `1px solid ${TT.border}`, borderRadius: 8,
+              outline: 'none', color: TT.fg,
+            }}
+          />
+        </div>
+        <select
+          value={providerFilter}
+          onChange={e => setProviderFilter(e.target.value)}
+          style={{
+            height: 34, padding: '0 28px 0 12px', fontSize: 13, fontFamily: 'inherit',
+            background: TT.surface, border: `1px solid ${TT.border}`, borderRadius: 8,
+            color: TT.fg, appearance: 'none', cursor: 'pointer',
+            backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>")`,
+            backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center',
+          }}
+        >
+          {providers.map(p => <option key={p}>{p}</option>)}
+        </select>
+        <div style={{ flex: 1 }} />
+        <div style={{ fontSize: 13, color: TT.muted }}>{filtered.length} en cola</div>
+      </div>
+
+      {/* Table */}
+      <div style={{
+        background: TT.surface, border: `1px solid ${TT.border}`,
+        borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden',
+      }}>
+        {error ? (
+          <div style={{ padding: 48, textAlign: 'center', color: TT.reject.fg, fontSize: 14 }}>{error}</div>
+        ) : loading ? (
+          <div style={{ padding: 48, textAlign: 'center', color: TT.muted, fontSize: 14 }}>Cargando cola…</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: TT.background }}>
+                {['Documento', 'Proveedor', 'Routing', 'Score', 'Acción'].map((h, i) => (
+                  <th key={h} style={{
+                    textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 600,
+                    color: TT.muted, textTransform: 'uppercase', letterSpacing: '.06em',
+                    borderBottom: `1px solid ${TT.border}`,
+                    width: i === 0 ? undefined : i === 1 ? 160 : i === 2 ? 180 : i === 3 ? 160 : 140,
+                  }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 48, textAlign: 'center', color: TT.muted }}>
+                    <div style={{ width: 40, height: 40, margin: '0 auto 12px', color: TT.subtle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Inbox size={40} />
+                    </div>
+                    <div style={{ fontSize: 14 }}>No hay documentos que coincidan con el filtro.</div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((d, i) => (
+                  <QueueRow key={d.document_id} doc={d} idx={i} />
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <style>{`@keyframes spin { 100% { transform: rotate(360deg) } }`}</style>
     </div>
+  )
+}
+
+function QueueRow({ doc, idx }: { doc: ProcessedDocument; idx: number }) {
+  const [hover, setHover] = useState(false)
+  const isPdf = doc.filename?.toLowerCase().endsWith('.pdf') ?? true
+
+  return (
+    <tr
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        cursor: 'pointer', background: hover ? TT.background : TT.surface,
+        borderTop: idx === 0 ? 'none' : `1px solid ${TT.divider}`,
+      }}
+    >
+      <td style={{ padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 32, height: 40, borderRadius: 6, background: TT.accentSoft, color: TT.accent,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            {isPdf ? <FileText size={18} /> : <ImageIcon size={18} />}
+          </div>
+          <div>
+            <div style={{ fontWeight: 500, color: TT.fg }}>{doc.filename}</div>
+            <div style={{ fontSize: 11, color: TT.muted, fontFamily: 'monospace', marginTop: 2 }}>{doc.document_id}</div>
+          </div>
+        </div>
+      </td>
+      <td style={{ padding: '14px 16px', color: TT.fg }}>{doc.provider}</td>
+      <td style={{ padding: '14px 16px' }}>
+        <RoutingBadge routing={doc.routing} size="sm" />
+      </td>
+      <td style={{ padding: '14px 16px' }}>
+        <ConfidenceBadge confidence={doc.confidence_score} />
+      </td>
+      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+        <Link href={`/resultado/${doc.document_id}`} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          height: 32, padding: '0 12px', fontSize: 13, fontWeight: 500, borderRadius: 8,
+          background: 'transparent', color: TT.fg, border: `1px solid ${TT.border}`,
+          textDecoration: 'none', transition: 'all 150ms ease',
+        }}>
+          Revisar →
+        </Link>
+      </td>
+    </tr>
   )
 }

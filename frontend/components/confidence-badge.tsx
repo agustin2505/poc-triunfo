@@ -1,38 +1,25 @@
-import { cn } from "@/lib/utils"
-import { formatConfidence, getConfidenceColor } from "@/lib/mock-data"
+import { TT, confBand } from "@/lib/theme"
 
 interface ConfidenceBadgeProps {
   confidence: number
   size?: "sm" | "md" | "lg"
-  showLabel?: boolean
 }
 
-export function ConfidenceBadge({ confidence, size = "md", showLabel = true }: ConfidenceBadgeProps) {
-  const color = getConfidenceColor(confidence)
-  
-  const colorClasses = {
-    green: "bg-emerald-100 text-emerald-800",
-    yellow: "bg-yellow-100 text-yellow-800",
-    red: "bg-red-100 text-red-800",
-  }
+export function ConfidenceBadge({ confidence, size = "md" }: ConfidenceBadgeProps) {
+  if (confidence === 0) return <span style={{ color: TT.subtle }}>—</span>
 
-  const sizeClasses = {
-    sm: "px-1.5 py-0.5 text-xs",
-    md: "px-2 py-0.5 text-sm",
-    lg: "px-3 py-1 text-base font-semibold",
-  }
-
-  if (confidence === 0) {
-    return <span className="text-slate-400">—</span>
-  }
+  const band = confBand(confidence)
+  const colors = TT[band]
+  const barWidth = size === 'sm' ? 48 : size === 'lg' ? 80 : 56
 
   return (
-    <span className={cn(
-      "inline-flex items-center rounded-md font-medium",
-      colorClasses[color],
-      sizeClasses[size]
-    )}>
-      {showLabel ? formatConfidence(confidence) : formatConfidence(confidence)}
-    </span>
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ width: barWidth, height: 6, borderRadius: 3, background: colors.bg, overflow: 'hidden', flexShrink: 0 }}>
+        <div style={{ width: `${Math.round(confidence * 100)}%`, height: '100%', background: colors.solid, borderRadius: 3 }} />
+      </div>
+      <span style={{ fontFamily: 'monospace', fontSize: 12, color: colors.fg, fontWeight: 600, minWidth: 32, fontVariantNumeric: 'tabular-nums' }}>
+        {confidence.toFixed(2)}
+      </span>
+    </div>
   )
 }

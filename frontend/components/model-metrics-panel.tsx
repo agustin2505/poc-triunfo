@@ -1,125 +1,68 @@
 "use client"
 
-import { cn } from "@/lib/utils"
-import { ConfidenceBadge } from "@/components/confidence-badge"
+import { TT } from "@/lib/theme"
 import type { PipelineStage } from "@/lib/mock-data"
-import {
-  Bar,
-  BarChart,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts"
 
 interface ModelMetricsPanelProps {
   stages: PipelineStage[]
   confidenceScore: number
 }
 
-export function ModelMetricsPanel({ stages, confidenceScore }: ModelMetricsPanelProps) {
-  const usedModels = ["DocAI", "Tesseract"]
-  const skippedModels = ["Vertex"]
-  
-  const totalDuration = stages.reduce((sum, s) => sum + s.duration_ms, 0) / 1000
+const STAGE_LABELS: Record<string, string> = {
+  INGESTED:   "Ingresado",
+  CLASSIFIED: "Clasificación",
+  PROCESSING: "Procesando",
+  EXTRACTED:  "Extracción",
+  VALIDATED:  "Validación",
+  ROUTED:     "Routing",
+}
 
-  // Prepare data for the bar chart
-  const chartData = stages
-    .filter(s => s.duration_ms > 0)
-    .map(s => ({
-      name: s.name === "CLASSIFIED" ? "Clasificación" :
-            s.name === "EXTRACTED" ? "Extracción" :
-            s.name === "VALIDATED" ? "Validación" :
-            s.name === "ROUTED" ? "Conciliación" :
-            s.name,
-      duration: s.duration_ms,
-    }))
+function KV({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 13 }}>
+      <span style={{ color: TT.muted }}>{label}</span>
+      <span style={{ color: TT.fg, fontWeight: 500, fontFamily: mono ? 'monospace' : 'inherit', fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+export function ModelMetricsPanel({ stages, confidenceScore }: ModelMetricsPanelProps) {
+  const total = stages.reduce((s, p) => s + p.duration_ms, 0)
+  const stagesWithTime = stages.filter(s => s.duration_ms > 0)
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-        <h3 className="font-semibold text-slate-900">Métricas de Modelos</h3>
+    <div style={{ background: TT.surface, border: `1px solid ${TT.border}`, borderRadius: 12, padding: 20 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: TT.muted, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 16 }}>
+        Modelos y métricas
       </div>
-      
-      <div className="p-6">
-        {/* Metrics cards row */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="rounded-lg border border-slate-200 p-4">
-            <p className="text-sm text-slate-500 mb-2">Modelos usados</p>
-            <div className="flex flex-wrap gap-2">
-              {usedModels.map((model) => (
-                <span 
-                  key={model}
-                  className={cn(
-                    "rounded-md px-2 py-1 text-sm font-medium",
-                    model === "DocAI" && "bg-blue-100 text-blue-700",
-                    model === "Tesseract" && "bg-purple-100 text-purple-700",
-                    model === "Vertex" && "bg-teal-100 text-teal-700"
-                  )}
-                >
-                  {model}
-                </span>
-              ))}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <KV label="Duración total" value={`${(total / 1000).toFixed(2)} s`} mono />
+        <KV label="Confidence global" value={confidenceScore.toFixed(2)} mono />
+        <KV label="Etapas completadas" value={`${stages.filter(s => s.status === 'SUCCESS').length} / ${stages.length}`} />
+        <div style={{ height: 1, background: TT.divider, margin: '4px 0' }} />
+        {stagesWithTime.map((s) => (
+          <div key={s.name}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+              <span style={{ color: TT.fg, fontWeight: 500 }}>{STAGE_LABELS[s.name] ?? s.name}</span>
+              <span style={{ color: TT.muted, fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>
+                {s.duration_ms} ms
+              </span>
+            </div>
+            <div style={{ marginTop: 6, height: 3, background: TT.divider, borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{
+                width: `${total > 0 ? Math.round((s.duration_ms / total) * 100) : 0}%`,
+                height: '100%', background: TT.primary, transition: 'width 200ms ease',
+              }} />
             </div>
           </div>
-
-          <div className="rounded-lg border border-slate-200 p-4">
-            <p className="text-sm text-slate-500 mb-2">Modelos saltados</p>
-            <div className="flex flex-wrap gap-2">
-              {skippedModels.map((model) => (
-                <span 
-                  key={model}
-                  className="rounded-md bg-slate-100 px-2 py-1 text-sm font-medium text-slate-500"
-                >
-                  {model}
-                </span>
-              ))}
-            </div>
+        ))}
+        {stagesWithTime.length === 0 && (
+          <div style={{ fontSize: 13, color: TT.muted, textAlign: 'center', padding: '8px 0' }}>
+            Sin datos de duración
           </div>
-
-          <div className="rounded-lg border border-slate-200 p-4">
-            <p className="text-sm text-slate-500 mb-2">Duración total</p>
-            <p className="text-2xl font-bold text-slate-900">{totalDuration.toFixed(1)}s</p>
-          </div>
-
-          <div className="rounded-lg border border-slate-200 p-4">
-            <p className="text-sm text-slate-500 mb-2">Confidence global</p>
-            <ConfidenceBadge confidence={confidenceScore} size="lg" />
-          </div>
-        </div>
-
-        {/* Duration bar chart */}
-        <div>
-          <p className="text-sm font-medium text-slate-700 mb-3">Duración por etapa (ms)</p>
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical">
-                <XAxis type="number" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis 
-                  type="category" 
-                  dataKey="name" 
-                  fontSize={12} 
-                  tickLine={false} 
-                  axisLine={false}
-                  width={100}
-                />
-                <Tooltip 
-                  formatter={(value: number) => [`${value}ms`, "Duración"]}
-                  contentStyle={{ 
-                    fontSize: 12, 
-                    borderRadius: 8, 
-                    border: "1px solid #e2e8f0" 
-                  }}
-                />
-                <Bar 
-                  dataKey="duration" 
-                  fill="#4f46e5" 
-                  radius={[0, 4, 4, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )

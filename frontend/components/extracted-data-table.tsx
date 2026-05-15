@@ -1,233 +1,211 @@
 "use client"
 
-import { useState } from "react"
-import { Pencil } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useState, useMemo, Fragment } from "react"
+import { ChevronRight, Check, AlertTriangle, X, ArrowUp, ArrowDown, MoreHorizontal } from "lucide-react"
+import { TT, FIELD_LABELS, confBand, confStatus } from "@/lib/theme"
 import { ConfidenceBadge } from "@/components/confidence-badge"
 import { SourceBadge } from "@/components/source-badge"
-import { 
-  type ExtractedField, 
-  type RoutingDecision,
-  fieldLabels, 
-  criticalFields,
-  formatCurrency,
-  formatDate 
-} from "@/lib/mock-data"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import type { ExtractedField, RoutingDecision } from "@/lib/mock-data"
 
 interface ExtractedDataTableProps {
   fields: Record<string, ExtractedField>
   routing: RoutingDecision
-  onFieldClick?: (fieldName: string, field: ExtractedField) => void
 }
 
-const amountFields = ["net_amount", "vat_amount", "total_amount"]
-const dateFields = ["invoice_date", "due_date", "cae_due_date"]
+type SortCol = 'label' | 'value' | 'confidence' | null
+type SortDir = 'asc' | 'desc'
 
-function formatFieldValue(fieldName: string, value: string | number | null): string {
-  if (value === null) return "—"
-  if (amountFields.includes(fieldName)) {
-    return formatCurrency(value as number)
-  }
-  if (dateFields.includes(fieldName)) {
-    return formatDate(value as string)
-  }
-  return String(value)
+const AGENT_CONFIG: Record<string, { label: string; bg: string; fg: string }> = {
+  agentA: { label: 'DocAI',     bg: '#DBEAFE', fg: '#1D4ED8' },
+  agentB: { label: 'Tesseract', bg: '#F3E8FF', fg: '#7E22CE' },
+  agentC: { label: 'Vertex',    bg: '#CCFBF1', fg: '#0F766E' },
 }
 
-export function ExtractedDataTable({ fields, routing, onFieldClick }: ExtractedDataTableProps) {
-  const [selectedField, setSelectedField] = useState<{ name: string; field: ExtractedField } | null>(null)
-  const isEditable = routing === "HITL_STANDARD" || routing === "HITL_PRIORITY"
-  
-  const fieldOrder = [
-    "supplier_name", "supplier_cuit", "invoice_type", "invoice_number",
-    "invoice_date", "due_date", "currency", "net_amount", "vat_amount",
-    "total_amount", "cae", "cae_due_date"
-  ]
+function StatusIcon({ status }: { status: 'ok' | 'warn' | 'error' }) {
+  if (status === 'ok')    return <Check         size={15} style={{ color: TT.approve.solid }} />
+  if (status === 'warn')  return <AlertTriangle size={15} style={{ color: TT.hitl.solid }} />
+  return <X size={15} style={{ color: TT.reject.solid }} />
+}
 
-  const handleRowClick = (fieldName: string, field: ExtractedField) => {
-    setSelectedField({ name: fieldName, field })
-    onFieldClick?.(fieldName, field)
-  }
+function SortIndicator({ col, active, dir }: { col: string; active: boolean; dir: SortDir }) {
+  if (!active) return null
+  return dir === 'asc' ? <ArrowUp size={12} style={{ color: TT.primary }} /> : <ArrowDown size={12} style={{ color: TT.primary }} />
+}
+
+function formatValue(key: string, val: string | number | null): string {
+  if (val === null || val === undefined) return '—'
+  return String(val)
+}
+
+export function ExtractedDataTable({ fields, routing }: ExtractedDataTableProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [sort, setSort] = useState<{ col: SortCol; dir: SortDir }>({ col: null, dir: 'asc' })
+
+  const toggle = (k: string) => setExpanded(s => {
+    const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n
+  })
+
+  const toggleSort = (col: SortCol) => setSort(s =>
+    s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }
+  )
+
+  const entries = useMemo(() => {
+    const list = Object.entries(fields)
+    if (!sort.col) return list
+    return [...list].sort(([ak, av], [bk, bv]) => {
+      const { col, dir } = sort
+      let a: string | number = 0, b: string | number = 0
+      if (col === 'confidence') { a = av.confidence; b = bv.confidence }
+      else if (col === 'label') { a = FIELD_LABELS[ak] ?? ak; b = FIELD_LABELS[bk] ?? bk }
+      else if (col === 'value') { a = String(av.value ?? ''); b = String(bv.value ?? '') }
+      if (typeof a === 'number') return dir === 'asc' ? a - (b as number) : (b as number) - a
+      return dir === 'asc' ? String(a).localeCompare(String(b)) : String(b).localeCompare(String(a))
+    })
+  }, [fields, sort])
+
+  const Th = ({ children, sortKey, w, right }: {
+    children?: React.ReactNode; sortKey?: SortCol; w?: number; right?: boolean
+  }) => (
+    <th
+      onClick={sortKey ? () => toggleSort(sortKey) : undefined}
+      style={{
+        textAlign: right ? 'right' : 'left', padding: '10px 14px', fontSize: 11, fontWeight: 600,
+        color: TT.muted, textTransform: 'uppercase', letterSpacing: '.06em',
+        borderBottom: `1px solid ${TT.border}`, background: TT.background,
+        cursor: sortKey ? 'pointer' : 'default', userSelect: 'none', width: w, whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {children}
+        {sortKey && <SortIndicator col={sortKey} active={sort.col === sortKey} dir={sort.dir} />}
+      </span>
+    </th>
+  )
 
   return (
-    <>
-      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-        <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-          <h3 className="font-semibold text-slate-900">Datos Extraídos</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[180px]">Campo</TableHead>
-                <TableHead className="w-[160px]">Valor Final</TableHead>
-                <TableHead className="w-[80px] text-center">Conf.</TableHead>
-                <TableHead className="w-[90px] text-center">Fuente</TableHead>
-                <TableHead className="w-[80px] text-center">DocAI</TableHead>
-                <TableHead className="w-[80px] text-center">Tesseract</TableHead>
-                <TableHead className="w-[80px] text-center">Vertex</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {fieldOrder.map((fieldName) => {
-                const field = fields[fieldName]
-                if (!field) return null
-                
-                const isCritical = criticalFields.includes(fieldName)
-                
-                return (
-                  <TableRow 
-                    key={fieldName}
-                    onClick={() => handleRowClick(fieldName, field)}
-                    className={cn(
-                      "cursor-pointer hover:bg-slate-50",
-                      isCritical && "bg-indigo-50/50"
-                    )}
-                  >
-                    <TableCell className="font-medium">
-                      <span className={cn(isCritical && "text-indigo-700")}>
-                        {fieldLabels[fieldName] || fieldName}
+    <div style={{ background: TT.surface, border: `1px solid ${TT.border}`, borderRadius: 10, overflow: 'hidden' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontFamily: 'inherit' }}>
+        <thead>
+          <tr>
+            <Th w={32} />
+            <Th sortKey="label" w={180}>Campo</Th>
+            <Th sortKey="value">Valor</Th>
+            <Th sortKey="confidence" w={160}>Confidence</Th>
+            <Th w={120}>Fuente</Th>
+            <Th w={110}>Estado</Th>
+            <Th w={32} right />
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map(([key, field]) => {
+            const open = expanded.has(key)
+            const status = confStatus(field.confidence)
+            const isCritical = field.confidence < 0.40
+            const label = FIELD_LABELS[key] ?? key
+
+            const agentRows = (['agentA', 'agentB', 'agentC'] as const)
+              .map(aKey => ({ aKey, data: field[aKey] }))
+              .filter(({ data }) => data !== undefined)
+
+            return (
+              <Fragment key={key}>
+                <tr
+                  onClick={() => toggle(key)}
+                  style={{
+                    borderTop: `1px solid ${TT.divider}`,
+                    background: open ? TT.background : TT.surface,
+                    cursor: 'pointer',
+                    borderLeft: isCritical ? `3px solid ${TT.reject.solid}` : '3px solid transparent',
+                  }}
+                  onMouseEnter={e => { if (!open) (e.currentTarget as HTMLTableRowElement).style.background = TT.background }}
+                  onMouseLeave={e => { if (!open) (e.currentTarget as HTMLTableRowElement).style.background = TT.surface }}
+                >
+                  <td style={{ padding: '10px 8px 10px 14px', color: TT.subtle }}>
+                    <span style={{ display: 'inline-flex', transform: open ? 'rotate(90deg)' : 'rotate(0)', transition: 'transform 150ms ease' }}>
+                      <ChevronRight size={14} />
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 14px', color: TT.fg, fontWeight: 500 }}>
+                    {label}
+                    <div style={{ fontSize: 11, color: TT.muted, fontFamily: 'monospace', marginTop: 2 }}>{key}</div>
+                  </td>
+                  <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: TT.fg, fontVariantNumeric: 'tabular-nums', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                    {formatValue(key, field.value)}
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <ConfidenceBadge confidence={field.confidence} />
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <SourceBadge source={field.source} />
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <StatusIcon status={status} />
+                      <span style={{
+                        fontSize: 12, fontWeight: 500,
+                        color: status === 'error' ? TT.reject.fg : status === 'warn' ? TT.hitl.fg : TT.muted,
+                      }}>
+                        {status === 'ok' ? 'Válido' : status === 'warn' ? 'Revisar' : 'Crítico'}
                       </span>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          field.value === null && "text-slate-400"
-                        )}>
-                          {formatFieldValue(fieldName, field.value)}
-                        </span>
-                        {isEditable && field.value !== null && (
-                          <Pencil className="h-3.5 w-3.5 text-slate-400" />
+                    </div>
+                  </td>
+                  <td style={{ padding: '10px 14px', color: TT.subtle, textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+                    <MoreHorizontal size={16} />
+                  </td>
+                </tr>
+
+                {open && (
+                  <tr style={{ background: TT.background }}>
+                    <td colSpan={7} style={{ padding: '0 14px 16px 50px', borderTop: `1px solid ${TT.divider}` }}>
+                      <div style={{ background: TT.surface, border: `1px solid ${TT.border}`, borderRadius: 8, padding: 14, marginTop: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: TT.muted, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
+                          Confidence por agente
+                        </div>
+                        {agentRows.length > 0 ? (
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                            <tbody>
+                              {agentRows.map(({ aKey, data }, i) => {
+                                if (!data) return null
+                                const cfg = AGENT_CONFIG[aKey]
+                                return (
+                                  <tr key={aKey} style={{ borderTop: i === 0 ? 'none' : `1px solid ${TT.divider}` }}>
+                                    <td style={{ padding: '8px 0', width: 110 }}>
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center',
+                                        background: cfg.bg, color: cfg.fg,
+                                        fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6,
+                                      }}>{cfg.label}</span>
+                                    </td>
+                                    <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: TT.fg, fontVariantNumeric: 'tabular-nums' }}>
+                                      {data.value !== null && data.value !== undefined ? String(data.value) : <span style={{ color: TT.subtle }}>—</span>}
+                                    </td>
+                                    <td style={{ padding: '8px 12px', width: 180 }}>
+                                      <ConfidenceBadge confidence={data.confidence} />
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div style={{ fontSize: 13, color: TT.muted, padding: '8px 0' }}>Sin detalle por agente disponible</div>
                         )}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <ConfidenceBadge confidence={field.confidence} size="sm" />
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <SourceBadge source={field.source} />
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {field.agentA ? (
-                        <ConfidenceBadge confidence={field.agentA.confidence} size="sm" />
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {field.agentB ? (
-                        <ConfidenceBadge confidence={field.agentB.confidence} size="sm" />
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {field.agentC && field.agentC.confidence > 0 ? (
-                        <ConfidenceBadge confidence={field.agentC.confidence} size="sm" />
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      {/* Agent Detail Modal */}
-      <Dialog open={selectedField !== null} onOpenChange={() => setSelectedField(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              Detalle: {selectedField ? fieldLabels[selectedField.name] : ""}
-            </DialogTitle>
-          </DialogHeader>
-          
-          {selectedField && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Valor Final</p>
-                  <p className="text-lg font-semibold text-slate-900">
-                    {formatFieldValue(selectedField.name, selectedField.field.value)}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Confianza</p>
-                  <ConfidenceBadge confidence={selectedField.field.confidence} size="lg" />
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-slate-200">
-                <div className="border-b border-slate-200 bg-slate-50 px-4 py-2">
-                  <h4 className="text-sm font-medium text-slate-700">Valores por Agente</h4>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {selectedField.field.agentA && (
-                    <div className="flex items-center justify-between px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">DocAI</span>
-                        <span>{formatFieldValue(selectedField.name, selectedField.field.agentA.value)}</span>
-                      </div>
-                      <ConfidenceBadge confidence={selectedField.field.agentA.confidence} size="sm" />
-                    </div>
-                  )}
-                  {selectedField.field.agentB && (
-                    <div className="flex items-center justify-between px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="rounded bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">Tesseract</span>
-                        <span>{formatFieldValue(selectedField.name, selectedField.field.agentB.value)}</span>
-                      </div>
-                      <ConfidenceBadge confidence={selectedField.field.agentB.confidence} size="sm" />
-                    </div>
-                  )}
-                  {selectedField.field.agentC && (
-                    <div className="flex items-center justify-between px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="rounded bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-700">Vertex</span>
-                        <span>
-                          {selectedField.field.agentC.confidence > 0 
-                            ? formatFieldValue(selectedField.name, selectedField.field.agentC.value)
-                            : "Saltado"
-                          }
-                        </span>
-                      </div>
-                      {selectedField.field.agentC.confidence > 0 ? (
-                        <ConfidenceBadge confidence={selectedField.field.agentC.confidence} size="sm" />
-                      ) : (
-                        <span className="text-xs text-slate-400">N/A</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="text-center">
-                <SourceBadge source={selectedField.field.source} />
-                <p className="mt-2 text-xs text-slate-500">
-                  Fuente seleccionada para el valor final
-                </p>
-              </div>
-            </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+          {entries.length === 0 && (
+            <tr>
+              <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: TT.muted, fontSize: 14 }}>
+                Sin campos extraídos
+              </td>
+            </tr>
           )}
-        </DialogContent>
-      </Dialog>
-    </>
+        </tbody>
+      </table>
+    </div>
   )
 }

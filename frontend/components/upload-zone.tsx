@@ -1,88 +1,105 @@
 "use client"
 
-import { useCallback, useState } from "react"
-import { Upload, FileImage } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useCallback, useState, useRef } from "react"
+import { Upload, FileText, Image as ImageIcon, X } from "lucide-react"
+import { TT } from "@/lib/theme"
 
 interface UploadZoneProps {
-  onFileSelect: (file: File) => void
-  disabled?: boolean
+  file?: File | null
+  onFile: (file: File) => void
+  onClear?: () => void
 }
 
-export function UploadZone({ onFileSelect, disabled }: UploadZoneProps) {
-  const [isDragOver, setIsDragOver] = useState(false)
+function fileSizeStr(size: number): string {
+  if (size > 1e6) return (size / 1e6).toFixed(2) + ' MB'
+  return (size / 1024).toFixed(0) + ' KB'
+}
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    if (!disabled) setIsDragOver(true)
-  }, [disabled])
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-  }, [])
+export function UploadZone({ file, onFile, onClear }: UploadZoneProps) {
+  const [drag, setDrag] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    setIsDragOver(false)
-    if (disabled) return
+    setDrag(false)
+    const f = e.dataTransfer.files?.[0]
+    if (f) onFile(f)
+  }, [onFile])
 
-    const file = e.dataTransfer.files[0]
-    if (file && isValidFileType(file)) {
-      onFileSelect(file)
-    }
-  }, [disabled, onFileSelect])
-
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file && isValidFileType(file)) {
-      onFileSelect(file)
-    }
-  }, [onFileSelect])
-
-  const isValidFileType = (file: File) => {
-    const validTypes = ["image/jpeg", "image/png", "application/pdf"]
-    return validTypes.includes(file.type)
+  if (file) {
+    const isPdf = file.type === 'application/pdf' || file.name.endsWith('.pdf')
+    return (
+      <div style={{
+        background: TT.surface, border: `1px solid ${TT.border}`, borderRadius: 12,
+        padding: 20, display: 'flex', alignItems: 'center', gap: 16,
+        boxShadow: '0 1px 2px rgba(16,24,40,.05)',
+      }}>
+        <div style={{
+          width: 56, height: 72, borderRadius: 8, background: TT.accentSoft, color: TT.accent,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative',
+        }}>
+          {isPdf ? <FileText size={22} /> : <ImageIcon size={22} />}
+          <span style={{
+            position: 'absolute', bottom: 6, fontSize: 9, fontWeight: 700,
+            letterSpacing: '.04em', textTransform: 'uppercase', fontFamily: 'monospace',
+          }}>{isPdf ? 'PDF' : 'IMG'}</span>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 500, color: TT.fg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {file.name}
+          </div>
+          <div style={{ fontSize: 13, color: TT.muted, marginTop: 2 }}>
+            {fileSizeStr(file.size)} · {file.type || 'aplicación binaria'}
+          </div>
+        </div>
+        {onClear && (
+          <button onClick={onClear} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'transparent', border: `1px solid ${TT.border}`, borderRadius: 8,
+            padding: '6px 12px', fontSize: 13, color: TT.muted, cursor: 'pointer',
+          }}>
+            <X size={14} /> Quitar
+          </button>
+        )}
+      </div>
+    )
   }
 
   return (
     <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
+      onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+      onDragLeave={() => setDrag(false)}
       onDrop={handleDrop}
-      className={cn(
-        "relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-12 transition-colors",
-        isDragOver
-          ? "border-indigo-500 bg-indigo-50"
-          : "border-slate-300 bg-white hover:border-indigo-400 hover:bg-slate-50",
-        disabled && "cursor-not-allowed opacity-50"
-      )}
+      onClick={() => inputRef.current?.click()}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
+      style={{
+        background: drag ? TT.accentSoft : TT.surface,
+        border: `2px dashed ${drag ? TT.accent : TT.border}`,
+        borderRadius: 12, padding: 48,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: 12, cursor: 'pointer', transition: 'all 150ms ease',
+      }}
     >
       <input
+        ref={inputRef}
         type="file"
-        accept=".jpg,.jpeg,.png,.pdf"
-        onChange={handleFileInput}
-        className="absolute inset-0 z-10 cursor-pointer opacity-0"
-        disabled={disabled}
+        accept="image/png,image/jpeg,application/pdf"
+        style={{ display: 'none' }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f) }}
       />
-      
-      <div className={cn(
-        "mb-4 flex h-16 w-16 items-center justify-center rounded-full",
-        isDragOver ? "bg-indigo-100" : "bg-slate-100"
-      )}>
-        {isDragOver ? (
-          <FileImage className="h-8 w-8 text-indigo-600" />
-        ) : (
-          <Upload className="h-8 w-8 text-slate-400" />
-        )}
+      <div style={{
+        width: 56, height: 56, borderRadius: 999,
+        background: drag ? TT.surface : TT.accentSoft, color: TT.accent,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Upload size={24} />
       </div>
-      
-      <p className="mb-2 text-lg font-medium text-slate-700">
-        Arrastrá tu factura aquí
-      </p>
-      <p className="text-sm text-slate-500">
-        JPEG, PNG, PDF
-      </p>
+      <div style={{ fontSize: 16, fontWeight: 600, color: TT.fg }}>
+        Arrastrá la factura o hacé click para seleccionar
+      </div>
+      <div style={{ fontSize: 13, color: TT.muted }}>PDF, JPEG o PNG · hasta 10 MB</div>
     </div>
   )
 }
